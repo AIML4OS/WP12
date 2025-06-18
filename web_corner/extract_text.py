@@ -1,20 +1,12 @@
+import requests 
 import justext
-import requests
+response = requests.get("https://www.zahnimplantatzentrum.wien/")
 
-# Fetch the webpage content
-url = "https://www.cbs.nl/nl-nl/vacature/toolexpert/1ae1a790f9284748aca2b34da8cae607"
-url = "https://www.cbs.nl/nl-nl/visualisaties/dashboard-consumentenprijzen"
-response = requests.get(url)
+print(response.content)
 
-# Extract meaningful text
-# TODO determine language 
-paragraphs = justext.justext(response.content, justext.get_stoplist("Dutch"))
+language = "German"
+extracted_paragraphs = justext.justext(response.content, justext.get_stoplist(language))
+print(extracted_paragraphs[0].__dict__)
+print(extracted_paragraphs[0].class_type)
 
-
-# Filter and print the main content
-with open("web_corner/output.txt", "w", encoding="utf-8") as file:
-    for paragraph in paragraphs:
-        if not paragraph.is_boilerplate:
-            for line in paragraph.text.split("\n"):
-                file.write(line + "\n")
-
+print([paragraph.text for paragraph in extracted_paragraphs if paragraph.class_type in ["good", "neargood"]])
