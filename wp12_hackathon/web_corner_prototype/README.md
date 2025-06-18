@@ -53,3 +53,4 @@ web_corner_prototype/
 
 ## Possible test data
 - During the hackathon testdata was used from the [WIN project online hackathon](https://cros.ec.europa.eu/book-page/win-hackathon)
+https://cros.ec.europa.eu/book-page/win-hackathon
