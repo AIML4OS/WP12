@@ -83,6 +83,6 @@ for var in variables:
 
     with open(f"web_corner/output_{var.replace(" ", "_").lower()}.json", "w") as fp:
         json.dump(job_vacancies, fp)
-    print(job_vacancies)
+    # print(job_vacancies)
 
 print("Done!")
