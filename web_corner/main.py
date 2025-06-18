@@ -25,40 +25,46 @@ with fs.open(FILE_PATH_S3, mode="rb") as file_in:
 with open("web_corner/api_key.txt", "r", encoding="utf-8") as file:
     api_key = file.readlines()[0]
 
+with open("web_corner/variables.txt", "r", encoding="utf-8") as file:
+    variables = file.readlines()
+
 url_country = list(zip(url_data['url'], url_data['country']))
 random.shuffle(url_country)
-url_country = url_country[:500]
+url_country = url_country[:10]
 
 job_vacancies = {}
-for url, country in url_country:
-    try:
-        response = requests.get(url)
-    except:
-        continue
-    # TODO determine language 
+for var in variables:
+    print("Variable:", var)
+    for url, country in url_country:
+        try:
+            response = requests.get(url)
+        except:
+            continue
+        # TODO determine language 
 
-    language = "English"
-    if country == "DE":
-        language = "German"
-    elif country == "NL":
-        language = "Dutch"
-    elif country == "PL":
-        language = "Polish"
-    elif country == "AT":
-        country = "German"
+        language = "English"
+        if country == "DE":
+            language = "German"
+        elif country == "NL":
+            language = "Dutch"
+        elif country == "PL":
+            language = "Polish"
+        elif country == "AT":
+            country = "German"
 
-    extracted_paragraphs = justext.justext(response.content, justext.get_stoplist(language))
-    extracted_text = "".join([paragraph.text for paragraph in extracted_paragraphs if not paragraph.is_boilerplate])
+        extracted_paragraphs = justext.justext(response.content, justext.get_stoplist(language))
+        extracted_text = "".join([paragraph.text for paragraph in extracted_paragraphs if not paragraph.is_boilerplate])
 
-    if len(extracted_text) < 1:
-        continue
-    # TODO get prompt from config
-    response = LLM_API(api_key, None, "magistral_24b", extracted_text)
-    job_vacancies[url] = response
+        if len(extracted_text) < 1:
+            continue
+        # TODO get prompt from config
+        response = LLM_API(api_key, var, None, "magistral_24b", extracted_text)
+        job_vacancies[url] = response
 
+    print(job_vacancies)
 
-print("# of items that are too long")
-print(len([v for v in job_vacancies.values() if len(v) > 3]))
+#print("# of items that are too long")
+#print(len([v for v in job_vacancies.values() if len(v) > 3]))
 
 
 with open("web_corner/output.json", "w") as fp:

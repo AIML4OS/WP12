@@ -1,12 +1,13 @@
 import openai
 
-def LLM_API(api_key, input_config = None, model="magistral:24b", message_content=""):
+def LLM_API(api_key, variables, input_config = None, model="magistral:24b", message_content=""):
+
     client = openai.OpenAI(
         api_key = api_key,
         base_url = "https://llm.lab.sspcloud.fr/api"
     )
 
-    prompt_content = f"{message_content}, does the above-mentioned text, relating to a web-page, contain a job vacancy posting OR link to a page containing job vacancies?"
+    prompt_content = f"{message_content}, does the above-mentioned text, relating to a web-page, contain a {variables}?"
 
     response = client.chat.completions.create(
         model = "magistral:24b",
