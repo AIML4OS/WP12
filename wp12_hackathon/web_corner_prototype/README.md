@@ -49,6 +49,7 @@ The prototype will involve:
 web_corner_prototype/
 ├── README.md
 └── [to be added: scraping scripts, LLM prompt logic, test URLs, architecture diagrams]
+```
 
 ## Possible test data
 - During the hackathon testdata was used from the [WIN project online hackathon](https://cros.ec.europa.eu/book-page/win-hackathon)
