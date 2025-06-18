@@ -51,5 +51,9 @@ web_corner_prototype/
 └── [to be added: scraping scripts, LLM prompt logic, test URLs, architecture diagrams]
 ```
 
-## Possible test data
+## Test data used
 - During this LLM hackathon testdata was re-used from the hackathon of the [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
+
+## Related work
+- Note the Statistical Scraping Interest Group ([SSIG](https://github.com/SNStatComp/SSIG))
+- Note the first SSIG meeting planned in Vienna 1617 Sep 2025, participant from NSIs very welcome!!!! 
