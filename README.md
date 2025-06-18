@@ -15,3 +15,20 @@ This repository is meant to serve as a working space where ongoing development a
 
 > ⚠️ **Note**: All content in this repository is currently under active development and experimentation. The examples and code provided are intended for demonstration and learning purposes only. They are not production-ready and should not be used in live systems.
 
+---
+
+## Repository Structure
+
+```plaintext
+/
+├── wp12_hackathon/                     # Outputs from the WP12 hackathon (June 2025)
+│   ├── dissemination_summary_prototype/
+│   │   ├── README.md
+│   │   ├── notebooks/
+│   │   ├── src/
+│   │   └── requirements.txt
+│   ├── code_translation_prototype/
+│   ├── document_analysis_prototype/
+│   └── reflections-and-summary.md     # Cross-team lessons learned
+├── sspcloud-setup.md                  # Guide to using the shared Onyxia/SSPCloud environment
+└── [future-deliverables]/             # Placeholder for upcoming reports and outputs (e.g. D12.2, D12.4)
