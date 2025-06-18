@@ -56,7 +56,7 @@ wp12_hackathon/
 
 ## First steps to start...
 
-The projects within this repository require an API key. To retrieve it, you'll need an SSP Cloud account. If it's not already done, create an account on the (SSP Cloud)[https://datalab.sspcloud.fr/] platform.  Then, to get your api key, go to (the AI chatbot hosted on the platform)[https://llm.lab.sspcloud.fr] > settings > account > API KEYS 
+The projects within this repository require an API key. To retrieve it, you'll need an SSP Cloud account. If it's not already done, create an account on the [SSP Cloud](https://datalab.sspcloud.fr/) platform.  Then, to get your api key, go to [the AI chatbot hosted on the platform](https://llm.lab.sspcloud.fr) > settings > account > API KEYS 
 
 Add your api key in an environment variable (LLM_API_KEY), to do so, in a terminal : 
 ```export LLM_API_KEY=your_api_key_you_just_retrieved"```
