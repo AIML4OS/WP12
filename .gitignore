@@ -1,4 +1,5 @@
 __pycache__
 *.venv*
-*data/*
-*chroma_db/*
+*/data/*
+wp12_hackathon/dissemination_summary_prototype/chroma_db
+wp12_hackathon/dissemination_summary_prototype/data/*
