@@ -1,0 +1,4 @@
+__pycache__
+*.venv*
+*/pdf_summarizer/data/*
+*/pdf_summarizer/chroma_db/*
