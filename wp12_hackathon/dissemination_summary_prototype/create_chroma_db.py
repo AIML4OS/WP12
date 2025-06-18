@@ -23,5 +23,4 @@ for file in data_dir.iterdir():
     loader = PyPDFLoader(file)
     chunks = loader.load_and_split()# This loads and splits the document into pages
     chroma_db.add_documents(chunks) # Not efficient, but I have CUDA memory limitations.
-chroma_db.persist()
 print(f"ChromaDB with local embeddings created at {PDF_CHROMA_DB}")
