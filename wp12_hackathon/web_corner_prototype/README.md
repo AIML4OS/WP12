@@ -52,4 +52,4 @@ web_corner_prototype/
 ```
 
 ## Possible test data
-- During the hackathon testdata was used from the hackathon of the [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
+- During the hackathon testdata was used from the hackathon of the WIN project [https://cros.ec.europa.eu/book-page/win-hackathon]
