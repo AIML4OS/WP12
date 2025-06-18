@@ -21,14 +21,10 @@ This repository is meant to serve as a working space where ongoing development a
 
 ```plaintext
 /
-├── wp12_hackathon/                     # Outputs from the WP12 hackathon (June 2025)
-│   ├── dissemination_summary_prototype/
-│   │   ├── README.md
-│   │   ├── notebooks/
-│   │   ├── src/
-│   │   └── requirements.txt
-│   ├── code_translation_prototype/
-│   ├── document_analysis_prototype/
-│   └── reflections-and-summary.md     # Cross-team lessons learned
-├── sspcloud-setup.md                  # Guide to using the shared Onyxia/SSPCloud environment
-└── [future-deliverables]/             # Placeholder for upcoming reports and outputs (e.g. D12.2, D12.4)
+├── wp12_hackathon/                        
+│   ├── dissemination_summary_prototype/     # Summarisation and tagging from report PDFs
+│   ├── from_pdf_to_figures/                 # Prototype in early stage – details to come
+│   ├── web_corner_prototype/                # Prototype in early stage – details to come
+│   └── reflections-and-summary.md           # Cross-group evaluation and insights
+├── sspcloud-setup.md                        # Guide to shared development environment
+└── [future-deliverables]/                   # Additional outputs from WP12 to be added later
