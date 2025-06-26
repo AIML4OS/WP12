@@ -8,3 +8,4 @@ openai>=1.0.0
 langchain-ollama>=0.0.3 
 pypdf>=5.6
 logger>=1.4
+langchain-docling
