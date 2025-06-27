@@ -7,3 +7,4 @@ wp12_hackathon/dissemination_summary_prototype/data/*
 *.sqlite3
 *.bin
 *.pdf
+*/connect_storage.py
