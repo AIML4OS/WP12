@@ -23,3 +23,21 @@ if st.button("Short English Airflights"):
         st.error(f"Could not connect to the backend: {e}")
         st.info("Please make sure the backend server is running.")
 
+st.subheader("📄 PDF Uploader")
+
+# 1) File uploader that only accepts PDFs
+uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
+if uploaded_file:
+    # 2) Prepare the file for multipart/form-data
+    files = {
+        "file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")
+    }
+    # 3) POST to the FastAPI endpoint
+    with st.spinner("Uploading…"):
+        resp = requests.post("http://localhost:8000/upload-pdf/", files=files)
+    if resp.ok:
+        data = resp.json()
+        st.success(f"Uploaded **{data['filename']}** ({data['size_bytes']} bytes)")
+    else:
+        st.error(f"Upload failed: {resp.status_code}")
+

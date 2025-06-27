@@ -93,7 +93,8 @@ pdf-summarizer/
 
 - [x] Multilingual text extraction
 - [x] Adaptive summarization prompts
-- [ ] WebUI
+- [x] WebUI
+- [ ] Uploader
 
 
 

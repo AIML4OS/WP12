@@ -2,6 +2,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from pathlib import Path
+import requests
+
 
 # Setting Directories
 pdf_dir = Path(__file__).parent
@@ -23,4 +25,5 @@ for file in data_dir.iterdir():
     loader = PyPDFLoader(file)
     chunks = loader.load_and_split()# This loads and splits the document into pages
     chroma_db.add_documents(chunks) # Not efficient, but I have CUDA memory limitations.
-print(f"ChromaDB with local embeddings created at {PDF_CHROMA_DB}")
+    response = requests.post("http://127.0.0.1:8000/upload-pdf/", json={"list_docs":chunks})
+print(f"ChromaDB with local embeddings created")
