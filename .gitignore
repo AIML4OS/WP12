@@ -8,3 +8,4 @@ wp12_hackathon/dissemination_summary_prototype/data/*
 *.bin
 *.pdf
 */connect_storage.py
+.vscode

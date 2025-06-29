@@ -23,7 +23,7 @@ chroma_db = Chroma(
 
 for file in data_dir.iterdir():
     loader = PyPDFLoader(file)
-    chunks = loader.load_and_split()# This loads and splits the document into pages
+    chunks = loader.load_and_split() # This loads and splits the document into pages
     chroma_db.add_documents(chunks) # Not efficient, but I have CUDA memory limitations.
     response = requests.post("http://127.0.0.1:8000/upload-pdf/", json={"list_docs":chunks})
 print(f"ChromaDB with local embeddings created")
