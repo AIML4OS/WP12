@@ -28,11 +28,11 @@ with fs.open(FILE_PATH_S3, mode="rb") as file_in:
     url_data = pd.read_csv(file_in, sep=",")
 
 # Read API Key
-with open("web_corner/api_key.txt", "r", encoding="utf-8") as file:
+with open("wp12_hackathon/web_corner_prototype/api_key.txt", "r", encoding="utf-8") as file:
     api_key = file.readlines()[0]
 
 # Read the variables for which we want to see if this text contains the content
-with open("web_corner/variables.txt", "r", encoding="utf-8") as file:
+with open("wp12_hackathon/web_corner_prototype/variables.txt", "r", encoding="utf-8") as file:
     variables = file.readlines()
 
 url_country = list(zip(url_data['url'], url_data['country']))
@@ -81,7 +81,7 @@ for var in variables:
     print(len([v for v in job_vacancies.values() if len(v) > 3]))
     print(f"Total items: {len(job_vacancies)}/{N}")
 
-    with open(f"web_corner/output_{var.replace(" ", "_").lower()}.json", "w") as fp:
+    with open(f"wp12_hackathon/web_corner_prototype/output_{var.replace(" ", "_").lower()}.json", "w") as fp:
         json.dump(job_vacancies, fp)
     # print(job_vacancies)
 
