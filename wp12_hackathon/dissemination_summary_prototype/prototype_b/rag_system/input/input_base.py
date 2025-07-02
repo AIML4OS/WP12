@@ -1,7 +1,7 @@
 from typing import Protocol,runtime_checkable, Any
 
 @runtime_checkable
-class InputParserBase(Protocol):
+class InputBase(Protocol):
     parser: Any
     parsed_content: Any
     

@@ -2,8 +2,15 @@ from typing import Protocol,runtime_checkable, Any
 
 @runtime_checkable
 class VectorDBBase(Protocol):
-    parser: Any
-    parsed_content: Any
+    def __init__(self, model_name: str = "BAAI/bge-m3"):
+        self.sentence_model:str
+        self.db: Any
     
-    def parse(self, input_docs: Any) -> None:
-        ...
+    @property
+    def embedding_function(self)-> Any:...
+    
+    def create_db(self):...
+        
+    def send_to_db(self, pages:list[str]):...
+
+    def get_context(self, num_docs:int) -> Any:...
