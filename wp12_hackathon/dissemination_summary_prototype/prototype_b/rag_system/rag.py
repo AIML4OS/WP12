@@ -1,6 +1,6 @@
-from rag_system.input.input import PdfReaderInput
+from rag_system.input.pdf import PdfReaderInput
 from typing import BinaryIO
-from rag_system.context.context import ChromaLangDB
+from rag_system.context.chromadb import ChromaLangDB
 
 class RAGSystem:
     def __init__(self, input:PdfReaderInput, db: ChromaLangDB) -> None:

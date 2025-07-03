@@ -4,8 +4,8 @@ from io import BytesIO
 import asyncio
 from nicegui.events import UploadEventArguments
 from rag_system.rag import RAGSystem
-from rag_system.input.input import PdfReaderInput
-from rag_system.context.context import ChromaLangDB
+from rag_system.input.pdf import PdfReaderInput
+from rag_system.context.chromadb import ChromaLangDB
 
 # Global variable to store extracted text
 extracted_text = ""
