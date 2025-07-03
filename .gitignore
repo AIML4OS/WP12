@@ -1,1 +1,11 @@
+__pycache__
+*.venv*
+*/data/*
+wp12_hackathon/dissemination_summary_prototype/chroma_db
+wp12_hackathon/dissemination_summary_prototype/data/*
+*test.py
+*.sqlite3
+*.bin
+*.pdf
 */connect_storage.py
+.vscode
