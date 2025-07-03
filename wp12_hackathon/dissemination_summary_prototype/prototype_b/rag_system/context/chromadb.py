@@ -23,16 +23,10 @@ class ChromaLangDB:
             documents.append(Document(page_content=page)) 
         self.vectorDB.add_documents(documents)
 
-    def get_context(self, num_docs:int) -> VectorStoreRetriever:
+    def context_builder(self, num_docs:int) -> VectorStoreRetriever:
         return self.vectorDB.as_retriever(k=num_docs)
     
     def similarity_search(self, question:str, **kwargs) -> list:
         return self.vectorDB.similarity_search(query=question, **kwargs)
 
-if __name__ == "__main__":
-    from rag_system.context.context_base import VectorDBBase
-    def validateInputBase(obj: VectorDBBase) -> bool:
-        """Runtime validation that an object implements InputParserBase protocol"""
-        return isinstance(obj, VectorDBBase)
-    print(validateInputBase(ChromaLangDB()))   # True
  
