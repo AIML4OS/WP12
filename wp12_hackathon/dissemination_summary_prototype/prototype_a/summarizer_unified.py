@@ -9,10 +9,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 # Load .env from the script's directory, not the current working directory
 load_dotenv(os.path.join(script_dir, '.env'))
 
-# Disable telemetry before any imports
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
-os.environ["CHROMA_TELEMETRY_ENABLED"] = "False"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Disable tokenizers parallelism warnings
 
 import warnings
 import time
@@ -23,6 +19,7 @@ from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnablePassthrough
 from docling.document_converter import DocumentConverter
@@ -34,7 +31,8 @@ from langchain_core.prompts import PromptTemplate
 from langchain_docling.loader import ExportType
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_openai import OpenAIEmbeddings
+#from langchain_openai import OpenAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 import torch
 import logging
 import json
@@ -43,34 +41,12 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.embeddings import Embeddings
 import requests
 
-class SSPCloudBGEEmbedding(Embeddings):
-    def __init__(self, endpoint_url: str, api_key: str):
-        self.endpoint_url = endpoint_url + "/v1/embeddings"
-        self.api_key = api_key
-
-    def embed_documents(self, texts):
-        payload = {"model": "bge-m3:latest", "inputs": texts}
-        response = requests.post(self.endpoint_url, json=payload, headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"})
-        response.raise_for_status()
-        return response.json()["embeddings"]
-
-    def embed_query(self, text):
-        return self.embed_documents([text])[0]
-    
 # Suppress PyTorch MPS warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
 
 # Configure logging - reduce verbosity
 logging.basicConfig(level=logging.WARNING)  # Changed from INFO to WARNING
 logger = logging.getLogger(__name__)
-
-# Suppress ChromaDB telemetry globally
-logging.getLogger("chromadb.telemetry").setLevel(logging.ERROR)
-logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.ERROR)
-logging.getLogger("chromadb.telemetry.product").setLevel(logging.ERROR)
-logging.getLogger("chromadb.telemetry.events").setLevel(logging.ERROR)
-
-# ChromaDB telemetry is disabled via environment variables and client settings
 
 
 def timed_execution(message_template: str = None):
@@ -160,6 +136,45 @@ class PDFSummarizer:
         llm_config = llm_config or {}
         self.llm = self._create_llm(llm_provider, **llm_config)
 
+    def _safe_json_parse(self, result):
+        """Parse JSON or return text if parsing fails."""
+        import re
+        
+        content = result.content if hasattr(result, 'content') else str(result)
+        
+        # First try direct JSON parsing
+        try:
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            pass
+        
+        # Try to extract JSON from markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_match:
+            try:
+                json_str = json_match.group(1)
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to find JSON object anywhere in the text
+        json_match = re.search(r'\{.*?\}', content, re.DOTALL)
+        if json_match:
+            try:
+                json_str = json_match.group(0)
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        
+        # If all fails, return fallback
+        print(f"⚠️ JSON parsing failed completely")
+        print(f"🔍 Raw LLM output: {content[:200]}...")
+        return {
+            "summary": content,
+            "keywords": ["parsing_failed"],
+            "tags": ["raw_text"]
+        }
+
     def _create_llm(self, provider: str, **kwargs) -> BaseChatModel:
         """
         Create LLM instance based on provider.
@@ -197,7 +212,7 @@ class PDFSummarizer:
         # - 1 - load the pdf with docling or pypdf
         # - 2 - split the pdf into chunks
         # - 3 - load the chunks into a vector store or just the text        
-        # - 4 - summarize the chunks with the llm (querying the vector store) or  (just the text)
+        # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
         # - 5 - return the summary
 
         if use_vector_store:
@@ -254,7 +269,7 @@ class PDFSummarizer:
         Create a runnable sequence for direct text summarization (non-vector store mode).
         """
         chat_prompt, _ = self._get_shared_prompts()
-        return chat_prompt | self.llm | JsonOutputParser()
+        return chat_prompt | self.llm | self._safe_json_parse
 
 
     def _load_pdf_txt_with_docling(self, pdf_path: str) -> str:
@@ -310,9 +325,7 @@ class PDFSummarizer:
                 if export_type == ExportType.DOC_CHUNKS:
                     splits = docs
                     # Filter complex metadata from docling documents
-                    print(f"🔧 Filtering complex metadata from {len(splits)} docling documents...")
                     splits = filter_complex_metadata(splits)
-                    print(f"✅ Filtered docling documents ready for vector store")
 
                 elif export_type == ExportType.MARKDOWN:
                     from langchain_text_splitters import MarkdownHeaderTextSplitter
@@ -348,20 +361,16 @@ class PDFSummarizer:
             remote_model = "bge-m3:latest"  # model name for SSP API
 
             print(f"🔧 Remote embedding with model: {remote_model} at SSP")
-            print(f"🔧 It does not support remote SSP embedding service")
-            return None
-            #Configure for SSP's embedding service
-
-            # embedding = OpenAIEmbeddings(
-            #     model=remote_model,
-            #     openai_api_key=os.getenv('SSP_KEY'),
-            #     openai_api_base="https://llm.lab.sspcloud.fr/api",
-            #     max_retries=3,   # Retry failed requests
-            #     request_timeout=60
-            #     )
-
-            #embedding = SSPCloudBGEEmbedding("https://llm.lab.sspcloud.fr/api", os.getenv('SSP_KEY'))
             
+            #Configure for SSP's embedding service
+            embedding = OllamaEmbeddings(
+                model=remote_model,
+                base_url="http://llm.lab.sspcloud.fr/ollama",
+                client_kwargs={'headers': {
+                    "Authorization": f"Bearer {os.getenv('SSP_KEY')}"
+                }}
+            )
+
         else:
             # Use local embedding
             print(f"🔧 Local embedding with model: {embedding_model}")
@@ -451,11 +460,11 @@ class PDFSummarizer:
         """
         _, string_prompt = self._get_shared_prompts()
         
-        # Create the document chain with JSON output
+        # Create the document chain with safe JSON output
         document_chain = create_stuff_documents_chain(
             llm=self.llm,
             prompt=string_prompt,
-            output_parser=JsonOutputParser()
+            output_parser=self._safe_json_parse
         )
         
         # Create the retrieval chain
@@ -485,26 +494,31 @@ class PDFSummarizer:
         2. Extract relevant keywords and tags
         3. Maintain objectivity and accuracy
         4. Focus on the main points and key findings
+
+        CRITICAL: You must respond ONLY with valid JSON. No explanations, no markdown, no additional text - just pure JSON.
         """
 
         system_message = f"{inner_system_prompt}\n\n{instruction_prompt}\n\n"
         
         # Single human prompt template to avoid duplication
-        human_prompt = """Please analyze the following content and provide:
-1. A comprehensive summary
-2. {max_keywords} most important keywords
-3. {max_tags} relevant tags
-4. With a maximum of {max_words} words
-5. Provide the output in the following language: {out_lang}
-6. Format your response as a valid JSON object with the following structure:
+        human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no additional text.
 
+Required JSON structure:
 {{
-    "summary": "<comprehensive summary here>",
-    "keywords": ["keyword1", "keyword2", "keyword3"],
-    "tags": ["tag1", "tag2", "tag3"]
+    "summary": "comprehensive summary (max {max_words} words, language: {out_lang})",
+    "keywords": ["list of {max_keywords} keywords"],
+    "tags": ["list of {max_tags} tags"]
 }}
 
-Content:
+Example valid response:
+{{
+    "summary": "The document discusses air transport statistics showing passenger growth.",
+    "keywords": ["aviation", "statistics", "passengers"],
+    "tags": ["transport", "data"]
+}}
+
+Now analyze this content and respond with JSON only:
+
 {content}"""
         
         # Chat prompt template (for direct text mode)
@@ -514,8 +528,9 @@ Content:
         ])
         
         # String prompt template (for retrieval chain) - uses same human prompt with different variable names
+        retrieval_human_prompt = human_prompt.replace("{content}", "Context: {context}\n\nUser Question: {input}")
         string_prompt = PromptTemplate(
-            template=system_message + human_prompt.replace("{content}", "{context}\n\nQuestion: {input}"),
+            template=system_message + retrieval_human_prompt,
             input_variables=["context", "input", "max_keywords", "max_tags", "max_words", "out_lang"]
         )
         
@@ -526,7 +541,8 @@ def main():
         
     # config for the llm
     config = {
-        "api_key": os.getenv('SSP_KEY')
+        "api_key": os.getenv('SSP_KEY'),
+        "temperature": 0.1  # Lower temperature for more deterministic JSON output
     }
     # model = "mistral-small3.1:latest", # a bit faster
     # model = "llama3.3:70b",   # a bit better but slower
@@ -536,7 +552,6 @@ def main():
     summarizer = PDFSummarizer(llm_config=config)
     
     # our input file - make it relative to the script's directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(script_dir, "Aereo.pdf")
 
     # result = summarizer.process_pdf(
@@ -550,7 +565,8 @@ def main():
 
     result = summarizer.process_pdf(
         file_path,
-        use_vector_store=True    
+        use_vector_store=True,
+        use_remote_embedding=True
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     print("\n" + "="*80 + "\n")
