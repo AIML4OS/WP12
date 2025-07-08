@@ -6,7 +6,6 @@ from langchain_core.output_parsers import StrOutputParser
 from rag_system.prompt_template.langchain_template import LangChainPromptTemplate
 from langchain_core.vectorstores import VectorStoreRetriever
 from rag_system.model.ollama import Ollama
-from operator import itemgetter
 
 
 class RAGSystem:
