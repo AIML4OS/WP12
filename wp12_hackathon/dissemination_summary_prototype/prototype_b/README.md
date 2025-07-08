@@ -17,57 +17,57 @@ This Proof-of-Concept (POC) is an AI-powered system capable of **consuming** and
 - Python 3.12+
 - PDF Parsing: `PyPDFLoader` (from LangChain Community)
 - Vector Database: `ChromaDB`
-- AI Framework: Ollama (**free**, and **local**)
+- Templates: `LangChain` ()
+- AI Framework: `Ollama` 
+
+All **free**, and **local**!
 
 
 ## 🚀 Getting Started
 
-### 1. Install the dependencies
 
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Set Virtual Environment
+### 1. Set Virtual Environment
 Create a venv inside the `dissemination_summary_prototype` folder:
 ```bash
 python -m venv .venv_pdf
 ```
 
-### 4. Setting the PDFs
-Put the PDFs you desire in the data folder.
+### 2. Install the dependencies
 
-### 5. Create the ChromaDB instance
-Run the file `create_chroma_db.py`
 ```bash
-python create_chroma_db.py
+pip install -r requirements.txt
 ```
-It should create a folder called `chroma_db`
 
-### 6. Ollama
+### 3. Setting Ollama
 Ollama allows you to run **freely**, and **locally** (on-premises) an llm, with minimal setup.
-1. Install Ollama
-2. Fetch llama3.2 llm, by using
+1. Install Ollama:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+2. Run: 
+```bash
+ollama serve
+```
+3. Fetch llama3.2 llm, by using
 ```bash
 ollama run llama3.2
 ```
-Note: Ollama will run as an enabled service, in Linux. This means it will start whenever your 
+Note: Usually Ollama will run as an enabled service, in Linux. 
+This means it will start whenever your 
 OS starts, and Linux will try to restart it, if by any chance the service goes down.
+In SSPCloud, however, because we're in a container, there's no systemd. I must run ollama 
+manually.
 
 
-### 7. Test Llama3.2
+### 4. Lauch main.py
 We are now ready to go! 
-Just insert your question in the `testing_pdf_lmm.py` file, and run it.
+Just run:
 ```bash
-python testing_pdf_lmm.py
+python main.py
 ```
 <figure>
-  <img src="pictures/image.png" alt="Description" width="600"/>
+  <img src="pictures/nicegui_interface.png" alt="Description" width="600"/>
   <figcaption>Figure 1: In Portuguese.</figcaption>
-</figure>
-<figure>
-  <img src="pictures/image-1.png" alt="Description" width="600"/>
-  <figcaption>Figure 1: In English.</figcaption>
 </figure>
 
 ## 🧾 Example Use Cases
@@ -76,15 +76,16 @@ python testing_pdf_lmm.py
 - Extract executive summaries from foreign-language reports.
 - Generate custom summaries by topic, tone, or length.
 - Translate and summarize in the user’s preferred language.
+- All of these, **locally** and **free**! 
 
 ## 📂 Project Structure
 
 ```
 prototybe_b/
-├── testing_pdf_llm.py         # Entry point for summarizing PDFs
-├── data                       # Empty folder which will include your PDFs
-├── create_chroma_db.py        # script to create a chroma db with your pdfs
-├── ollama_pdf.py              # script to create the RAG
+├── main.py                    # Entry point for Web App
+├── rag_system                 # Folder containing RAG system
+├── gui                        # Folder containing NiceGUI 
+├── onyxia_init.sh             # script to initialise VSCode GPU service
 ├── requirements.txt           # Python dependencies
 └── README.md                  # POC documentation
 ```
@@ -93,9 +94,11 @@ prototybe_b/
 
 - [x] Multilingual text extraction
 - [x] Adaptive summarization prompts
-- [x] WebUI
+- [x] Web GUI
 - [x] Uploader
-- [ ] RAGSystem
+- [x] RAGSystem
+- [ ] Improve Templates
+- [ ] Improve Web GUI
 
 
 
