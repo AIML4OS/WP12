@@ -147,4 +147,9 @@ def health_check():
     return {'status': 'healthy'}
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(host='127.0.0.1', port=8000, title='PDF Text Summarizer')
+    ui.run(host='127.0.0.1', 
+           port=8000, 
+           title='PDF Text Summarizer',
+           reload=False,
+           root_path='/proxy/8000'
+    )

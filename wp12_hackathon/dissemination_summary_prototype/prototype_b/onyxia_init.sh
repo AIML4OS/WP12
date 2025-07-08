@@ -6,5 +6,5 @@ pip install -r requirements.txt
 
 # Ollama install
 curl -fsSL https://ollama.com/install.sh | sh
-# ollama serve
-# bash ollama run llama3.2
+ollama serve &
+"/bye" | ollama run llama3.2
