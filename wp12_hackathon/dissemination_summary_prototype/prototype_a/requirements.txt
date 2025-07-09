@@ -12,3 +12,4 @@ langchain-docling
 sentence-transformers
 langchain-chroma
 langchain-huggingface
+chromadb
