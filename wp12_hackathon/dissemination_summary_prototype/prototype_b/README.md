@@ -70,6 +70,18 @@ python main.py
   <figcaption>Figure 1: In Portuguese.</figcaption>
 </figure>
 
+### 5. Notes on Infrastructure
+
+If we are hosting Ollama in another server, and through a proxy, we may need to pass Ollama's
+ip address in the client.
+```python
+# Replace with the actual IP and port of your Ollama instance
+ollama_host = "http://new_ollama_ip:11434"
+
+# Initialize the Ollama model with the custom host
+llm = Ollama(model="llama3", base_url=ollama_host)
+```
+
 ## 🧾 Example Use Cases
 
 - Summarize international research papers.
