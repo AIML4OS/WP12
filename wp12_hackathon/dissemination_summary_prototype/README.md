@@ -51,6 +51,13 @@ This prototype includes a simplified reference architecture based on common AI c
 
 Please refer to `architecture.png` in this directory for a visual representation of the chosen setup.
 
+### Prototype B
+
+- Python 3.12+
+- PDF Parsing: `PyPDFLoader` (from LangChain Community), and `pypdf`
+- Vector Database: `ChromaDB`
+- Templates: `LangChain`
+- AI Framework: `Ollama` 
 
 ## 🧪 Test Data
 - A Portuguese example pdf: [Carregue aqui](https://www.ine.pt/ngt_server/attachfileu.jsp?look_parentBoui=731841778&att_display=n&att_download=y)

@@ -15,9 +15,9 @@ This Proof-of-Concept (POC) is an AI-powered system capable of **consuming** and
 ## 🛠️ Tech Stack
 
 - Python 3.12+
-- PDF Parsing: `PyPDFLoader` (from LangChain Community)
+- PDF Parsing: `PyPDFLoader` (from LangChain Community) and `pypdf`
 - Vector Database: `ChromaDB`
-- Templates: `LangChain` ()
+- Templates: `LangChain`
 - AI Framework: `Ollama` 
 
 All **free**, and **local**!
