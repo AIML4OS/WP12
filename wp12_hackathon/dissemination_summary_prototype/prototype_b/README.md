@@ -82,6 +82,12 @@ ollama_host = "http://new_ollama_ip:11434"
 llm = Ollama(model="llama3", base_url=ollama_host)
 ```
 
+If you want to run this in Onyxia:
+1. [Launch VSCode Service](https://datalab.sspcloud.fr/launcher/ide/vscode-pytorch-gpu?name=vscode-pytorch-gpu&version=2.3.16&s3=region-79669f20&networking.user.enabled=true&networking.user.ports[0]=8000&autoLaunch=true)
+
+2. Run the commands in the `onyxia_init.sh` script.
+(Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead)
+
 ## 🧾 Example Use Cases
 
 - Summarize international research papers.
