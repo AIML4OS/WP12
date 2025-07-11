@@ -6,6 +6,7 @@ pip install -r requirements.txt
 
 # Ollama install
 curl -fsSL https://ollama.com/install.sh | sh
+sleep 5
 nohup ollama serve &
 echo "/bye" | ollama run llama3.2 # pulling the llama3.2 model and exiting it.
 
