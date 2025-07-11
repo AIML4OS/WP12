@@ -11,7 +11,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 sleep 5
 nohup ollama serve &
 sleep 5
-echo "/bye" | ollama run llama3.2 # pulling the llama3.2 model
+ollama pull llama3.2 # pulling the llama3.2 model
 
 # launching App
 source .venv_pdf/bin/activate
