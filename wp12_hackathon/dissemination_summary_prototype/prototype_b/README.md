@@ -88,6 +88,9 @@ If you want to run this in Onyxia:
 2. Run the commands in the `onyxia_init.sh` script.
 (Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead)
 
+3. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
+Do Ctrl+click on the link, and it will redirect you to a new tab with the WebGUI.
+
 ## 🧾 Example Use Cases
 
 - Summarize international research papers.
