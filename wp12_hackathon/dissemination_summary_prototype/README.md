@@ -53,5 +53,5 @@ Please refer to `architecture.png` in this directory for a visual representation
 
 
 ## 🧪 Test Data
-- A Portuguese example pdf: [Carrega aqui](https://www.ine.pt/ngt_server/attachfileu.jsp?look_parentBoui=731841778&att_display=n&att_download=y)
-- A Swedish example pdf: [Ladda ner här]()
+- A Portuguese example pdf: [Carregue aqui](https://www.ine.pt/ngt_server/attachfileu.jsp?look_parentBoui=731841778&att_display=n&att_download=y)
+- A Swedish example pdf: [Ladda ner här](https://www.scb.se/contentassets/d5bc9f56c1f740e092734788191d9b6c/2025-03-10/instruktioner-uba.pdf)
