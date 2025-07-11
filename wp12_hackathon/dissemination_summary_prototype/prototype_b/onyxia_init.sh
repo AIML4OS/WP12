@@ -8,7 +8,7 @@ pip install -r requirements.txt
 curl -fsSL https://ollama.com/install.sh | sh
 sleep 5
 nohup ollama serve &
-echo "/bye" | ollama run llama3.2 # pulling the llama3.2 model and exiting it.
+ollama run llama3.2 # pulling the llama3.2 model
 
 # launching App
 source .venv_pdf/bin/activate
