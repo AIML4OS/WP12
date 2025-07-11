@@ -50,3 +50,8 @@ This prototype includes a simplified reference architecture based on common AI c
 - API: SSPCloud-hosted models through Ollama+OpenWebUI
 
 Please refer to `architecture.png` in this directory for a visual representation of the chosen setup.
+
+
+## 🧪 Test Data
+- A Portuguese example pdf: [Carrega aqui](https://www.ine.pt/ngt_server/attachfileu.jsp?look_parentBoui=731841778&att_display=n&att_download=y)
+- A Swedish example pdf: [Ladda ner här]()
