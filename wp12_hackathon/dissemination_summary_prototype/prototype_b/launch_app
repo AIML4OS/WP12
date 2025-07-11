@@ -1,0 +1,13 @@
+#!/bin/bash
+
+./set_venv.sh &
+VENV_PID=$!
+
+./set_ollama.sh > /dev/null &
+
+if ps -p $VENV_PID > /dev/null; then
+    wait VENV_PID
+
+# launching App
+source .venv_pdf/bin/activate
+python main.py
