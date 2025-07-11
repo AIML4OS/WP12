@@ -14,6 +14,15 @@ from docling.document_converter import DocumentConverter
 from dotenv import load_dotenv
 import logging
 
+########################################################################################
+#
+# OLD CODE 
+#
+# This is the initial version of the summarizer. 
+# The relevant code of this file has been ported to the summarizer_unified.py file 
+# where it was merged with the vector store approach from prototype b.
+#
+########################################################################################
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
