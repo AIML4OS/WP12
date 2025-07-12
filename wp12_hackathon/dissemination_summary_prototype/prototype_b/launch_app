@@ -1,13 +1,19 @@
 #!/bin/bash
-
-./set_venv.sh &
+cd WP12/wp12_hackathon/dissemination_summary_prototype/prototype_b/
+./set_venv.sh & # goes to background
 VENV_PID=$!
 
-./set_ollama.sh > /dev/null &
+./set_ollama.sh > /dev/null 2>&1 & # goes to background 
+OLLAMA_PID=$!
 
 if ps -p $VENV_PID > /dev/null; then
     wait $VENV_PID
 fi
+
+if ps -p $OLLAMA_PID > /dev/null; then
+    wait $OLLAMA_PID
+fi
+
 
 # launching App
 source .venv_pdf/bin/activate
