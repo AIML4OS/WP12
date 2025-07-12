@@ -65,10 +65,9 @@ Just run:
 ```bash
 python main.py
 ```
-<figure>
-  <img src="pictures/nicegui_interface.png" alt="Description" width="600"/>
-  <figcaption>Figure 1: In Portuguese.</figcaption>
-</figure>
+This should open a new tab in your web browser, showing you the web GUI.
+See below for a picture of the current web GUI.
+
 
 ### 5. Notes on Infrastructure
 
@@ -94,8 +93,17 @@ If you want to run this in Onyxia:
 This will install many necessary components. You may need to wait for some 5min. 
 (Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead.)
 
-6. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
+3. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
 Do Ctrl+click on the link, and it will redirect you to a new tab with the WebGUI.
+
+
+## Web GUI
+
+Once you open the app, you should see something similar to this:
+<figure>
+  <img src="pictures/nicegui_interface.png" alt="Description" width="600"/>
+  <figcaption>Figure 1: In Portuguese.</figcaption>
+</figure>
 
 ## 🧾 Example Use Cases
 
@@ -103,7 +111,9 @@ Do Ctrl+click on the link, and it will redirect you to a new tab with the WebGUI
 - Extract executive summaries from foreign-language reports.
 - Generate custom summaries by topic, tone, or length.
 - Translate and summarize in the user’s preferred language.
-- All of these, **locally** and **free**! 
+- All of these, **locally** and **free**!
+
+Currently, the prototype is capable of summarising pdf documents in different source languages (swedish, portuguese, english, french, and so on) into portuguese. Later on, we can add a feature, where we let the user choose its target language.
 
 ## 📂 Project Structure
 
