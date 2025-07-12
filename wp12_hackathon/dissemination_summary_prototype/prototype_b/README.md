@@ -23,8 +23,8 @@ This Proof-of-Concept (POC) is an AI-powered system capable of **consuming** and
 All **free**, and **local**!
 
 
-## 🚀 Getting Started
-
+## 🚀 Getting Started Locally
+(For Onyxia see below)
 
 ### 1. Set Virtual Environment
 Create a venv inside the `dissemination_summary_prototype` folder:
@@ -82,10 +82,12 @@ ollama_host = "http://new_ollama_ip:11434"
 llm = Ollama(model="llama3", base_url=ollama_host)
 ```
 
+## 🚀 Getting Started in Onyxia
+
 If you want to run this in Onyxia:
 1. [Launch VSCode Service](https://datalab.sspcloud.fr/launcher/ide/vscode-pytorch-gpu?name=vscode-pytorch-gpu&version=2.3.16&s3=region-79669f20&init.personalInit=«https%3A%2F%2Fraw.githubusercontent.com%2FAIML4OS%2FWP12%2Frefs%2Fheads%2Fmain%2Fwp12_hackathon%2Fdissemination_summary_prototype%2Fprototype_b%2Fonyxia_init.sh»&networking.user.enabled=true&networking.user.ports[0]=8000&autoLaunch=true)
 
-2. Open the terminal, and in `~/work` directory, which should show up as the default one, run the command:
+2. Open the terminal, and in `~/work` directory, which should show up as the default one, and run the command:
 ```bash
 ./launch_app
 ```
