@@ -136,7 +136,8 @@ prototybe_b/
 - [x] RAGSystem
 - [ ] Improve Templates
 - [ ] Improve Web GUI
-- [ ] Possible improvements to Onyxia installation
+- [ ] Improve Onyxia installation (cleaning req file and using UV)
+- [ ] Put Onyxia running on gemma3 models
 
 
 Made with (several) 🤖 , and ❤️ by Ivo Tavares
