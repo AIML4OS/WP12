@@ -83,12 +83,16 @@ llm = Ollama(model="llama3", base_url=ollama_host)
 ```
 
 If you want to run this in Onyxia:
-1. [Launch VSCode Service](https://datalab.sspcloud.fr/launcher/ide/vscode-pytorch-gpu?name=vscode-pytorch-gpu&version=2.3.16&s3=region-79669f20&networking.user.enabled=true&networking.user.ports[0]=8000&autoLaunch=true)
+1. [Launch VSCode Service](https://datalab.sspcloud.fr/launcher/ide/vscode-pytorch-gpu?name=vscode-pytorch-gpu&version=2.3.16&s3=region-79669f20&init.personalInit=«https%3A%2F%2Fraw.githubusercontent.com%2FAIML4OS%2FWP12%2Frefs%2Fheads%2Fmain%2Fwp12_hackathon%2Fdissemination_summary_prototype%2Fprototype_b%2Fonyxia_init.sh»&networking.user.enabled=true&networking.user.ports[0]=8000&autoLaunch=true)
 
-2. Run the commands in the `onyxia_init.sh` script.
-(Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead)
+2. Open the terminal, and in `~/work` directory, which should show up as the default one, run the command:
+```bash
+./launch_app
+```
+This will install many necessary components. You may need to wait for some 5min. 
+(Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead.)
 
-3. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
+6. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
 Do Ctrl+click on the link, and it will redirect you to a new tab with the WebGUI.
 
 ## 🧾 Example Use Cases
@@ -120,7 +124,7 @@ prototybe_b/
 - [x] RAGSystem
 - [ ] Improve Templates
 - [ ] Improve Web GUI
-
+- [ ] Possible improvements to Onyxia installation
 
 
 Made with (several) 🤖 , and ❤️ by Ivo Tavares
