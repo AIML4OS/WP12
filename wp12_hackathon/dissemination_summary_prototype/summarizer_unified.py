@@ -9,7 +9,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 # Load .env from the script's directory, not the current working directory
 load_dotenv(os.path.join(script_dir, '.env'))
 
-
 import warnings
 import time
 from typing import List, Dict, Optional, Union
@@ -25,8 +24,9 @@ from langchain_core.runnables import RunnablePassthrough
 from docling.document_converter import DocumentConverter
 from docling.chunking import HybridChunker
 from langchain_docling import DoclingLoader
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings #+ pip install langchain_huggingface 
+#from langchain_chroma import Chroma
+from langchain.vectorstores import Chroma#NEW 08/07/2025 PC + pip install chromadb
 from langchain_core.prompts import PromptTemplate
 from langchain_docling.loader import ExportType
 from langchain.chains import create_retrieval_chain
@@ -40,6 +40,11 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from langchain_core.embeddings import Embeddings
 import requests
+
+import tempfile
+import shutil
+
+
 
 # Suppress PyTorch MPS warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
@@ -204,71 +209,97 @@ class PDFSummarizer:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}")
-    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200):
+    def process_pdf(
+    self,
+    pdf_path: str,
+    use_vector_store: bool = False,
+    document_loader: str = "docling",
+    embedding_model: str = "BAAI/bge-m3",
+    use_remote_embedding: bool = False,
+    max_keywords: int = 6,
+    max_tags: int = 5,
+    out_lang: str = "pt-pt",
+    max_words: int = 200
+    ):
         """
-        Process a PDF file and return a summary.
+        Process a PDF file and return a summary, rebuilding all vector-store
+        components from scratch each time to avoid reuse of old embeddings.
         """
-
-        # - 1 - load the pdf with docling or pypdf
-        # - 2 - split the pdf into chunks
-        # - 3 - load the chunks into a vector store or just the text        
-        # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
-        # - 5 - return the summary
-
-        if use_vector_store:
-            if document_loader == "docling":
-                chunks = self._load_pdf_with_docling(pdf_path)
-            elif document_loader == "pypdf":
-                chunks = self._load_pdf_with_pypdf(pdf_path)
-            else:
-                raise ValueError(f"Unsupported document loader: {document_loader}")
-            
-            vector_store = self._get_vector_store(chunks, embedding_model, use_remote_embedding)
-            retriever = vector_store.as_retriever(search_kwargs={"k": 10})  # Increased from 5 to 10
-
-            # Create retrieval chain with integrated prompting
-            retrieval_chain = self._create_retrieval_chain(retriever)
-            
-            result = retrieval_chain.invoke({
-                "input": "Summarize the main content and statistics from this document about air transport activity",
-                "max_keywords": max_keywords,
-                "max_tags": max_tags,
-                "max_words": max_words,
-                "out_lang": out_lang
-            })
-            # Return the JSON result directly
-            return result.get("answer", result)
-        
+        # 1) Load and split PDF
+        if document_loader == "docling":
+            splits = self._load_pdf_with_docling(pdf_path)
+        elif document_loader == "pypdf":
+            splits = self._load_pdf_with_pypdf(pdf_path)
         else:
-            context = "\n\n=== Document Section ===\n\n"
+            raise ValueError(f"Unsupported document loader: {document_loader}")
+
+        # 2) If using vector store, build it fresh in a temp dir
+        if use_vector_store:
+            temp_dir = tempfile.mkdtemp(prefix="chroma_")  # fresh directory
+            try:
+                from langchain.vectorstores import Chroma
+
+                # choose embedding
+                if use_remote_embedding:
+                    embedding = OllamaEmbeddings(
+                        model="bge-m3:latest",
+                        base_url="http://llm.lab.sspcloud.fr/ollama",
+                        client_kwargs={"headers": {"Authorization": f"Bearer {os.getenv('SSP_KEY')}"}}
+                    )
+                else:
+                    embedding = HuggingFaceEmbeddings(
+                        model_name=embedding_model,
+                        model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
+                        encode_kwargs={"normalize_embeddings": True}
+                    )
+
+                # build vector store
+                vector_store = Chroma.from_documents(
+                    documents=splits,
+                    embedding=embedding,
+                    persist_directory=temp_dir
+                )
+
+                # 3) create fresh retriever & chain
+                retriever = vector_store.as_retriever(search_kwargs={"k": 10})
+                retrieval_chain = self._create_retrieval_chain(retriever,out_lang)
+
+                # 4) invoke the chain
+                result = retrieval_chain.invoke({
+                    "input": "Summarize the main content and statistics from this document about air transport activity",
+                    "max_keywords": max_keywords,
+                    "max_tags": max_tags,
+                    "max_words": max_words,
+                    "out_lang": out_lang
+                })
+
+                return result.get("answer", result)
+
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        # 5) Non-vector mode: simple chain over text
+        else:
             if document_loader == "docling":
-                pdf_text = self._load_pdf_txt_with_docling(pdf_path)
-                context = context + pdf_text
-            elif document_loader == "pypdf":
-                pdf_text = self._load_pdf_txt_with_pypdf(pdf_path)
-                context = context + pdf_text
+                text = self._load_pdf_txt_with_docling(pdf_path)
             else:
-                raise ValueError(f"Unsupported document loader: {document_loader}")
+                text = self._load_pdf_txt_with_pypdf(pdf_path)
 
-            # 3 - create the summary chain
-            chain = self._create_summary_chain()
-
-            result = chain.invoke({
-                "content": context,
+            chain = self._create_summary_chain(out_lang)
+            return chain.invoke({
+                "content": text,
                 "max_keywords": max_keywords,
                 "max_tags": max_tags,
                 "max_words": max_words,
                 "out_lang": out_lang
             })
 
-            return result
 
-
-    def _create_summary_chain(self):
+    def _create_summary_chain(self, out_lang):
         """
         Create a runnable sequence for direct text summarization (non-vector store mode).
         """
-        chat_prompt, _ = self._get_shared_prompts()
+        chat_prompt, _ = self._get_shared_prompts(out_lang)
         return chat_prompt | self.llm | self._safe_json_parse
 
 
@@ -347,45 +378,38 @@ class PDFSummarizer:
         except Exception as e:
             raise e
 
-    def _get_vector_store(self, splits: List[str], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True) -> str:
+    def _get_vector_store(
+        self,
+        splits: List[str],
+        embedding_model: str = "BAAI/bge-m3",
+        use_remote_embedding: bool = True
+    ) -> Chroma:
         """
-        Create vector store with local or remote embeddings.
-        
-        Args:
-            splits: Document chunks
-            embedding_model: Model name for embeddings
-            use_remote_embedding: If True, use remote embedding service
+        Create a fresh in-memory vector store (no reuse) or, if you must persist,
+        use a temp directory that is removed after use.
         """
+        # 1) Choose embedding backend  
         if use_remote_embedding:
-            # Use remote embedding service (SSP BGE-M3)
-            remote_model = "bge-m3:latest"  # model name for SSP API
-
-            print(f"🔧 Remote embedding with model: {remote_model} at SSP")
-            
-            #Configure for SSP's embedding service
+            print("🔧 Remote embedding with SSP BGE-M3")
             embedding = OllamaEmbeddings(
-                model=remote_model,
+                model="bge-m3:latest",
                 base_url="http://llm.lab.sspcloud.fr/ollama",
-                client_kwargs={'headers': {
-                    "Authorization": f"Bearer {os.getenv('SSP_KEY')}"
-                }}
+                client_kwargs={"headers": {"Authorization": f"Bearer {os.getenv('SSP_KEY')}" }}
             )
-
         else:
-            # Use local embedding
-            print(f"🔧 Local embedding with model: {embedding_model}")
-
+            print(f"🔧 Local embedding with {embedding_model}")
             embedding = HuggingFaceEmbeddings(
                 model_name=embedding_model,
                 model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-                encode_kwargs={"normalize_embeddings": True}  # recommended for BGE
+                encode_kwargs={"normalize_embeddings": True}
             )
 
+        # 2) Build an in-memory Chroma store (no on-disk persistence)
         vector_store = Chroma.from_documents(
-            persist_directory="chroma_db",
             documents=splits,
             embedding=embedding
         )
+
         return vector_store
 
     def _load_pdf_with_pypdf(self, pdf_path: str) -> str:
@@ -454,11 +478,11 @@ class PDFSummarizer:
         
         return suppress_logging()
 
-    def _create_retrieval_chain(self, retriever):
+    def _create_retrieval_chain(self, retriever, out_lang):
         """
         Create a retrieval chain that integrates document retrieval with generation.
         """
-        _, string_prompt = self._get_shared_prompts()
+        _, string_prompt = self._get_shared_prompts(out_lang)
         
         # Create the document chain with safe JSON output
         document_chain = create_stuff_documents_chain(
@@ -475,65 +499,91 @@ class PDFSummarizer:
         
         return retrieval_chain
 
-    def _get_shared_prompts(self):
-        """
-        Get shared prompts that ensure consistent output format across all modes.
-        """
-        # Instruction prompt (this is the one we can tweak, it could be refactored as a parameter)
-        instruction_prompt = """
-        You are a statistician, specialized in reporting, your goal is to summarize the content of documents.
-        You don't add information and you don't make analysis, you just summarize what is already there.
-        You pay special attention not to be biased in your summarizations, stay neutral and follow the spirit and tone present in the document.
-        When outputting in Portuguese, use the European Portuguese.
-        """
-        
-        # Inner system prompt (this is fixed)
-        inner_system_prompt = """
-        You are a professional document analyzer. Your task is to:
-        1. Provide a clear and concise summary
-        2. Extract relevant keywords and tags
-        3. Maintain objectivity and accuracy
-        4. Focus on the main points and key findings
+    def _get_shared_prompts(self, out_lang="pt-pt"):
+        if out_lang == "pt-pt":
+            instruction_prompt = """
+    Você é um estatístico especializado em relatórios. O seu objetivo é resumir o conteúdo de documentos.
+    Não deve acrescentar informações nem fazer análises – apenas resumir o que está presente no texto.
+    Ignore completamente qualquer contexto anterior – trate este documento como novo e independente.
+    Use sempre português europeu correto, formal e objetivo.
+    """
+            inner_system_prompt = """
+    É um analista profissional de documentos. A sua tarefa é:
+    1. Fornecer um resumo claro e conciso
+    2. Extrair palavras-chave e etiquetas relevantes
+    3. Manter objetividade e precisão
+    4. Focar nos pontos principais e estatísticas essenciais
 
-        CRITICAL: You must respond ONLY with valid JSON. No explanations, no markdown, no additional text - just pure JSON.
-        """
+    IMPORTANTE: Responda APENAS com JSON válido. Sem explicações, markdown ou texto adicional – apenas JSON puro.
+    """
+            human_prompt = """Analise o conteúdo e devolva APENAS um JSON válido, sem qualquer outro texto.
 
+    Estrutura obrigatória do JSON:
+    {{
+        "summary": "resumo completo (máximo de {max_words} palavras, em português europeu)",
+        "keywords": ["lista de {max_keywords} palavras-chave"],
+        "tags": ["lista de {max_tags} etiquetas"]
+    }}
+
+    Exemplo de resposta:
+    {{
+        "summary": "O documento analisa estatísticas do mercado de trabalho em Portugal...",
+        "keywords": ["emprego", "estatísticas", "mercado de trabalho"],
+        "tags": ["trabalho", "Portugal"]
+    }}
+
+    Conteúdo:
+    {content}"""
+
+        else:  # English prompt
+            instruction_prompt = """
+    You are a statistician, specialized in reporting, your goal is to summarize the content of documents.
+    You don't add information and you don't make analysis, you just summarize what is already there.
+    You must ignore any prior summaries, documents, or context – treat this input as completely new and independent.
+    """
+            inner_system_prompt = """
+    You are a professional document analyzer. Your task is to:
+    1. Provide a clear and concise summary
+    2. Extract relevant keywords and tags
+    3. Maintain objectivity and accuracy
+    4. Focus on the main points and key findings
+
+    IMPORTANT: Respond ONLY with valid JSON. No explanations, no markdown, no additional text – just JSON.
+    """
+            human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no additional text.
+
+    Required JSON structure:
+    {{
+        "summary": "comprehensive summary (max {max_words} words, language: {out_lang})",
+        "keywords": ["list of {max_keywords} keywords"],
+        "tags": ["list of {max_tags} tags"]
+    }}
+
+    Example valid response:
+    {{
+        "summary": "The document discusses air transport statistics showing passenger growth.",
+        "keywords": ["aviation", "statistics", "passengers"],
+        "tags": ["transport", "data"]
+    }}
+
+    Now analyze this content and respond with JSON only:
+
+    {content}"""
+
+        # Compose the chat & string prompts
         system_message = f"{inner_system_prompt}\n\n{instruction_prompt}\n\n"
-        
-        # Single human prompt template to avoid duplication
-        human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no additional text.
 
-Required JSON structure:
-{{
-    "summary": "comprehensive summary (max {max_words} words, language: {out_lang})",
-    "keywords": ["list of {max_keywords} keywords"],
-    "tags": ["list of {max_tags} tags"]
-}}
-
-Example valid response:
-{{
-    "summary": "The document discusses air transport statistics showing passenger growth.",
-    "keywords": ["aviation", "statistics", "passengers"],
-    "tags": ["transport", "data"]
-}}
-
-Now analyze this content and respond with JSON only:
-
-{content}"""
-        
-        # Chat prompt template (for direct text mode)
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", system_message),
             ("human", human_prompt)
         ])
-        
-        # String prompt template (for retrieval chain) - uses same human prompt with different variable names
+
         retrieval_human_prompt = human_prompt.replace("{content}", "Context: {context}\n\nUser Question: {input}")
         string_prompt = PromptTemplate(
             template=system_message + retrieval_human_prompt,
             input_variables=["context", "input", "max_keywords", "max_tags", "max_words", "out_lang"]
         )
-        
+
         return chat_prompt, string_prompt
 
 
@@ -552,8 +602,9 @@ def main():
     summarizer = PDFSummarizer(llm_config=config)
     
     # our input file - make it relative to the script's directory
-    file_path = os.path.join(script_dir, "Aereo.pdf")
-
+    #file_path = os.path.join(script_dir, "Aereo.pdf")
+    file_path = os.path.join(script_dir, "sweed_doc1.pdf")
+    
     # result = summarizer.process_pdf(
     #     file_path,
     #     document_loader="pypdf",

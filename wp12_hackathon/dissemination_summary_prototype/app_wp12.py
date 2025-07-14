@@ -2,7 +2,7 @@ import os
 import tempfile
 from nicegui import ui, app, run
 from starlette.datastructures import UploadFile
-from summarizer_unified import PDFSummarizer
+from summarizer_unified import PDFSummarizer  # Ensure this points to your class
 from nicegui.events import UploadEventArguments
 
 uploaded_file = {}
@@ -11,21 +11,34 @@ keywords_label = None
 tags_label = None
 summary_text = ""
 
-def run_summarization(file_path, max_keywords, max_tags, max_words, out_lang):
+def run_summarization(file_path, max_keywords, max_tags, max_words, out_lang,
+                      use_vector_store=True, use_remote_embedding=True):
     summarizer = PDFSummarizer(llm_config={
         "api_key": os.getenv("SSP_KEY"),
         "temperature": 0.1,
     })
     return summarizer.process_pdf(
-        file_path,
+        pdf_path=file_path,
+        use_vector_store=use_vector_store,
+        use_remote_embedding=use_remote_embedding,
         max_keywords=max_keywords,
         max_tags=max_tags,
         max_words=max_words,
         out_lang=out_lang
     )
 
+#def handle_upload(e: UploadEventArguments):
+#    uploaded_file['file'] = e
+#    ui.notify(f'✅ Uploaded: {e.name}', type='positive')
+
 def handle_upload(e: UploadEventArguments):
     uploaded_file['file'] = e
+
+    summary_label.text = 'Summary will appear here.'
+    keywords_label.text = 'Keywords will appear here.'
+    tags_label.text = 'Tags will appear here.'
+    status_label.text = 'Ready for new summary.'
+
     ui.notify(f'✅ Uploaded: {e.name}', type='positive')
 
 async def handle_summarize(max_words_input, max_keywords_input, max_tags_input, out_lang_select, status_label):
@@ -50,7 +63,9 @@ async def handle_summarize(max_words_input, max_keywords_input, max_tags_input, 
             int(max_keywords_input.value),
             int(max_tags_input.value),
             int(max_words_input.value),
-            out_lang_select.value
+            out_lang_select.value,
+            use_vector_store=True,
+            use_remote_embedding=True
         )
 
         summary_text = result.get("summary", "No summary.")
@@ -114,17 +129,18 @@ def main_page():
         with ui.card().classes('w-full p-6 bg-gray-50'):
             ui.label('🏷️ Tags').classes('text-xl font-semibold')
             tags_label = ui.label('Tags will appear here.').classes('w-full')
-    
+
         ui.button('⬇️ Download Summary', on_click=lambda: ui.download.content(
             f"""📄 Summary:
-        {summary_label.text}
+{summary_label.text}
 
-        🔑 Keywords:
-        {keywords_label.text}
+🔑 Keywords:
+{keywords_label.text}
 
-        🏷️ Tags:
-        {tags_label.text}
-        """, 'summary_full.txt')).props('color=primary').classes('w-full')
+🏷️ Tags:
+{tags_label.text}
+""", 'summary_full.txt')).props('color=primary').classes('w-full')
+
 
 if __name__ in {'__main__', '__mp_main__'}:
     ui.run(
