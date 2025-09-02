@@ -7,7 +7,8 @@ This document presents the outcome of the prototype work carried out within Work
 AI systems involving generative models are composed not only of the models themselves but also of surrounding components such as APIs, frameworks, orchestration layers, RAG pipelines, and interface tools. Architectural choices regarding these components have significant implications for important aspects such as the feasibility of local deployment, data protection strategies, and the ability to mitigate issues like hallucination or low explainability. While the purpose of Task T12.1 is to provide guidance on these architectural aspects, the hands-on work carried out in Task T12.2 offers practical insights that help ground that guidance in real-world constraints. This is particularly important in a fast-moving domain such as generative AI, where purely theoretical guidance quickly risks becoming obsolete.
 
 To support this work, a reference diagram of generic architectural components has been used throughout the WP12 process. Originally developed within UNECE collaboration, this model illustrates how foundational AI models relate to surrounding infrastructure such as APIs, vector stores, frameworks, and user interfaces. The figure below is used throughout the report as a point of reference.
-`ai_architecture_building_blocks.png`
+![Architecture overview](./Architecture%20overview%20Gen%20AI%20technical%20building%20blocks.jpg)
+
 
 ## Approach and Methodology
 
@@ -30,6 +31,10 @@ Each prototype is documented with its own README, evaluation summary, architectu
 This prototype focuses on the dissemination process by automatically generating multilingual summaries and metadata tags from statistical reports. Reports are uploaded as PDFs, processed via a RAG pipeline, and passed to a prompting layer that produces concise summaries in both the local language and English, along with relevant tags.
 
 The prototype was assessed as highly reusable, adaptable for local deployment, and aligned with common workflows in dissemination. Its use of open-source tools such as LangChain and Ollama, combined with a structured architecture, made it an excellent example of how modern frameworks can enhance the efficiency and control of generative AI systems. Full details on technical components and test data are available in the associated prototype folder.
+
+Example of a GUI that can simplify interaction with generative ai models and solutions.
+![Prototype GUI example](./gui_example.png)
+
 
 ## Prototype 2: From PDF to Figures
 
