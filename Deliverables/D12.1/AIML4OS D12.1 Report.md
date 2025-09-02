@@ -1,5 +1,16 @@
 # D12.1 – WP12 Prototypes: Hackathon Outcomes and Reflections
 
+## Deliverable description
+
+This deliverable (D12.1 – “WP12 LLM Prototype A”) presents the outcomes of Task T12.2 within Work Package 12 (WP12) of the AIML4OS project. The task aimed at developing at least two demonstrators based on the use of pre-existing large language models (LLMs), exploring their application to key areas in official statistics. The prototypes were developed through an international hackathon held in Lisbon in June 2025.
+
+The main application and documentation are available in English. Components and supporting tools may be reused and adapted by statistical organisations in different countries, with reference code and architectural mappings provided.
+
+## Abstract
+
+This report is submitted in accordance with Deliverable D12.1 within Work Package 12 (WP12) of the AIML4OS project. The aim of this deliverable was to explore practical applications of existing LLMs within official statistics through the development of demonstrators. The prototypes were produced during a collaborative hackathon involving six national statistical institutes, and reflect diverse use cases including dissemination, data extraction, and web content monitoring. The deliverable includes documentation, architecture diagrams, and reflections on technical and organisational aspects of LLM integration.
+
+
 ## Introduction
 
 This document presents the outcome of the prototype work carried out within Work Package 12 (WP12) of the AIML4OS project, with a specific focus on activities leading up to and during the WP12 hackathon held in Lisbon in June 2025. The deliverable D12.1, titled "WP12 LLM prototype A," is classified as a demonstrator and report, and aims to showcase concrete applications of pre-existing Large Language Models (LLMs) in official statistics. It is produced as part of Task T12.2, which targets the development of at least two prototypes in key areas such as data and metadata handling, automated text generation, production code improvement, chatbot-based dissemination, and the analysis of large documents or web content.
@@ -67,3 +78,8 @@ The availability of a shared and flexible development environment proved critica
 Early alignment on architecture helped avoid mismatched expectations and made it easier to discuss trade-offs as part of the development process. Balancing generalisability and specificity remained a key challenge, as did the need to abstract away sensitive data sources while maintaining relevance and realism.
 
 Overall, the hackathon succeeded in delivering functional prototypes, capturing relevant architectural insights, and strengthening shared capacity to work with LLM-based systems in the context of official statistics.
+
+
+## Supporting Information
+
+Documentation and tutorials for the prototypes are available at: [https://github.com/AIML4OS/WP12/tree/main/wp12_hackathon](https://github.com/AIML4OS/WP12/tree/main/wp12_hackathon)
