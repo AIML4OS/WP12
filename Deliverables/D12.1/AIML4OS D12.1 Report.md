@@ -56,7 +56,7 @@ The prototypes illustrated how architectural decisions - such as model hosting (
 
 Using a shared environment like SSPCloud made it possible to test these architectural choices under common conditions. It also provided a natural bridge between experimentation and potential operationalisation, since other teams can replicate the setup and test the prototypes without starting from scratch.
 
-The figure `ai_architecture_building_blocks.png` illustrates the range of architectural components considered during this work, and serves as a reference for understanding the diversity of integration paths explored.
+The figure including architecture components illustrates the range of architectural components considered during this work, and serves as a reference for understanding the diversity of integration paths explored.
 
 ## Reflections and Lessons Learned
 
