@@ -1,0 +1,47 @@
+[
+  {
+    "source_file": "pdf/test.pdf",
+    "status": "failed",
+    "reason": "Poor text extraction even with OCR",
+    "metadata": {
+      "method_used": "OCR",
+      "pages_processed": 0,
+      "extraction_quality": "poor",
+      "error": "tesseract is not installed or it's not in your PATH. See README file for more information."
+    }
+  },
+  {
+    "source_file": "pdf/Ryanair Holdings PLC (1).pdf",
+    "processing_timestamp": "2025-09-18T11:23:38.037396",
+    "extraction_metadata": {
+      "method_used": "standard_extraction",
+      "extraction_quality": "good"
+    },
+    "extracted_data": {
+      "company_name": "Ryanair Holdings plc",
+      "report_year": 2025,
+      "currency": "EUR",
+      "financial_metrics": {
+        "total_revenue": 13949,
+        "net_profit": 1612,
+        "total_assets": 17507,
+        "shareholders_equity": 7037,
+        "operating_costs": 12391,
+        "total_debt": 2317
+      },
+      "operational_metrics": {
+        "employees": 26000,
+        "customers_passengers": 200000000,
+        "locations_routes": 2600,
+        "key_operational_metric": "Carried 200 million guests in FY25, representing a 9% traffic growth"
+      },
+      "sustainability": {
+        "co2_emissions": null,
+        "sustainability_rating": "MSCI: A; CDP: A-; Sustainalytics: No.1 global large cap airline",
+        "employee_training_hours": null
+      },
+      "extraction_confidence": 9
+    },
+    "status": "success"
+  }
+]
