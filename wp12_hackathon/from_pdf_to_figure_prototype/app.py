@@ -8,7 +8,7 @@ from pipeline.report_pipeline import UpdatedAnnualReportPipeline
 
 
 def main():
-    API_KEY = "sk-97b27b041cc0446e99a4ee2a0f85ab60"
+    API_KEY = "API_KEY"
     BASE_URL = "https://llm.lab.sspcloud.fr/api"
     MODEL_ID = "gpt-oss:120b"
 
