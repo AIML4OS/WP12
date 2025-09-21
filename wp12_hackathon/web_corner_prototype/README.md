@@ -46,9 +46,30 @@ Run the command `pip3 install -r requirements.txt` in order to install the requi
 
 ---
 
+## Execution
+
+Run the command `python main.py` in order to run the main program.
+
+---
+
 ## Test data used
 - During this LLM hackathon the same test data was re-used from the hackathon of the [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
 
 ## Related work
 - Note the Statistical Scraping Interest Group ([SSIG](https://github.com/SNStatComp/SSIG))
 - Note the first SSIG meeting planned in Vienna 16 / 17 Sep 2025, participant from NSIs very welcome!!!! 
+
+---
+
+## Troubleshooting
+
+* Sometimes the models available are removed or changed. Run the `test_openai.py` script in order to
+  check which models are currently available and also check if they support *chat* mode. If the
+  selected model does not support *chat* mode then it cannot be used.
+* Make sure the `api_key.txt` file contains the api key string. You can find your api key by following
+  these instructions: 
+  * Login or create an SSP Cloud account [SSP Cloud](https://datalab.sspcloud.fr/)
+  * Go to [the AI chatbot hosted on the platform](https://llm.lab.sspcloud.fr)
+  * Navigate to settings > account > API KEYS
+* Make sure you have access to the bucket where the input url data file is found, otherwise, use
+  a backup file with url data such as the one found under `test/` folder.
