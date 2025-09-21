@@ -3,7 +3,7 @@
 This prototype explores the potential of **modern web scraping techniques combined with Large Language Models (LLMs)** to support targeted content detection on web pages. The primary use case involves determining whether a given web page contains information related to a specific variable or concept, such as:
 
 > "Does this web page contain a job vacancy page?"
-> "Is this website representing a accomodtion site"
+> "Is this website representing an accommodation site"
 > ...
 
 ## 🧠 Use Case Description
@@ -40,13 +40,14 @@ These assessments reflect the high potential for automation and cross-domain app
 
 ---
 
-## 🔍 Technical Concept
+## Installation instructions
 
+Run the command `pip3 install -r requirements.txt` in order to install the required packages.
 
 ---
 
 ## Test data used
-- During this LLM hackathon testdata was re-used from the hackathon of the [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
+- During this LLM hackathon the same test data was re-used from the hackathon of the [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
 
 ## Related work
 - Note the Statistical Scraping Interest Group ([SSIG](https://github.com/SNStatComp/SSIG))

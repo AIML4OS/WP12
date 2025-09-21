@@ -1,8 +1,10 @@
 import openai
 
 # This is a simple test script to check if the API key for the chat service is valid.
+# You can also use it to check which models are currently available and use them in
+# the main script.
 # Use 'path_api_key' variable to specify the path of your api key file
-path_api_key = "./api_key.txt"  # "/home/onyxia/work/SCB/Metoddagen/api_key.txt"
+path_api_key = "../api_key.txt"  # "/home/onyxia/work/SCB/Metoddagen/api_key.txt"
 
 # Read API Key
 with open(path_api_key, "r", encoding="utf-8") as file:
@@ -13,8 +15,10 @@ client = openai.OpenAI(
     base_url="https://llm.lab.sspcloud.fr/api"
 )
 
+# available:
+# bge-m3:latest (no chat support!), gpt-oss:20b, gpt-oss:120b
 print('Available models:')
-models = client.models.list()  # available: bge-m3:latest, gpt-oss:20b, gpt-oss:120b
+models = client.models.list()
 for model in models:
     print('- ' + model.id)
 
@@ -27,11 +31,13 @@ try:
         messages=[
             {
                 "role": "system",
-                "content": "Du är en expert som ger en kort sammanfattar vad företag har för verksamhet utifrån texter jag ger dig."
+                "content": "Du är en expert som ger en kort sammanfattar vad företag "
+                           "har för verksamhet utifrån texter jag ger dig."
             },
             {
                 "role": "user",
-                "content": "Sammanfatta kort vad företagets huvudsakliga verksamhet är enligt texten: Vi säljer pizzor och sushi."
+                "content": "Sammanfatta kort vad företagets huvudsakliga verksamhet är "
+                           "enligt texten: Vi säljer pizzor och sushi."
             },
         ],
         temperature=0.2,  # Control the randomness of the response. A value close to 0

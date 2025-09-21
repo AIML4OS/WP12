@@ -1,4 +1,4 @@
-import requests 
+import requests
 import justext
 response = requests.get("https://www.zahnimplantatzentrum.wien/")
 
