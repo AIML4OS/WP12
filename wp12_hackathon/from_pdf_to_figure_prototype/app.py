@@ -1,10 +1,5 @@
 import json
-import sys
-import argparse
-from pathlib import Path
-
 from pipeline.report_pipeline import UpdatedAnnualReportPipeline
-#from config.settings import Config
 
 
 def main():

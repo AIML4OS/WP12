@@ -3,7 +3,6 @@ import json
 import re
 from typing import Dict, Any
 
-#class classifySector:
 
 class AnnualReportExtractor:
     def __init__(self, api_key: str, base_url: str, model_id: str):

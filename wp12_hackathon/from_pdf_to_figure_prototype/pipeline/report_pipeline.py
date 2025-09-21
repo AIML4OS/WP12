@@ -1,11 +1,10 @@
-import json
 from datetime import datetime
 from typing import Dict
 
 from processors.text_processor import FinalPDFProcessor
 from extractors.base_extractor import EnhancedAnnualReportExtractor
 from validators.data_validator import DataValidator
-#from config.settings import Config  
+
 
 class UpdatedAnnualReportPipeline:
     def __init__(self, api_key: str, base_url: str, model_id: str):
