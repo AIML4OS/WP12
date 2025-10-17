@@ -57,7 +57,7 @@ Run the command `python main.py` in order to run the main program.
 
 ## Related work
 - Note the Statistical Scraping Interest Group ([SSIG](https://github.com/SNStatComp/SSIG))
-- Note the first SSIG meeting planned in Vienna 16 / 17 Sep 2025, participant from NSIs very welcome!!!! 
+- This [repo](https://github.com/SNStatComp/webtextclassifier) of the WEB-FOSS-NL project builds on this web_corner hackathon.
 
 ---
 
@@ -72,4 +72,5 @@ Run the command `python main.py` in order to run the main program.
   * Go to [the AI chatbot hosted on the platform](https://llm.lab.sspcloud.fr)
   * Navigate to settings > account > API KEYS
 * Make sure you have access to the bucket where the input url data file is found, otherwise, use
+
   a backup file with url data such as the one found under `test/` folder.
