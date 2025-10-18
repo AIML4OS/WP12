@@ -70,7 +70,6 @@ Run the command `python main.py` in order to run the main program.
   these instructions: 
   * Login or create an SSP Cloud account [SSP Cloud](https://datalab.sspcloud.fr/)
   * Go to [the AI chatbot hosted on the platform](https://llm.lab.sspcloud.fr)
-  * Navigate to settings > account > API KEYS
+  * Navigate to Settings > Account > API keys
 * Make sure you have access to the bucket where the input url data file is found, otherwise, use
-
   a backup file with url data such as the one found under `test/` folder.

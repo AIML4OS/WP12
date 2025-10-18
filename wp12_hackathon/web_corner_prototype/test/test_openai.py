@@ -23,7 +23,8 @@ for model in models:
     print('- ' + model.id)
 
 selected_model = 'gpt-oss:20b'
-print('Using model "%s"' % (selected_model))
+print('\nUsing model "%s"' % (selected_model))
+print('- Testing chat session ...')
 
 try:
     response = client.chat.completions.create(
@@ -31,13 +32,13 @@ try:
         messages=[
             {
                 "role": "system",
-                "content": "Du är en expert som ger en kort sammanfattar vad företag "
-                           "har för verksamhet utifrån texter jag ger dig."
+                "content": "You are an expert who gives a brief summary of the company's "
+                           "activities based on texts I give you."
             },
             {
                 "role": "user",
-                "content": "Sammanfatta kort vad företagets huvudsakliga verksamhet är "
-                           "enligt texten: Vi säljer pizzor och sushi."
+                "content": "Briefly summarize what the company's main business is "
+                           "according to the text: We sell pizzas and sushi."
             },
         ],
         temperature=0.2,  # Control the randomness of the response. A value close to 0
@@ -48,7 +49,7 @@ try:
                           # top_p=0.9 would generate tokens from the top 90% probability
                           # distribution.
     )
-    print(response.choices[0].message.content)
+    print('- Result: ' + response.choices[0].message.content)
 
 except Exception as e:
     print('! Error: %s' % (str(e)))

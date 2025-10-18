@@ -99,7 +99,11 @@ def analyze_urls(sample_size, url_data, variables, api_key, selected_model):
     print(f'\nAnalyzing {len(url_country)} urls')
     for var in variables:
         result = {}
-        print("\nVariable:", var)
+        var = var.rstrip()  # remove trailing newline
+        print("\n==========================")
+        print("Variable:", var)
+        print("--------------------------")
+
         for url, country in url_country:
             try:
                 response = requests.get(url)
@@ -126,22 +130,23 @@ def analyze_urls(sample_size, url_data, variables, api_key, selected_model):
             ])
 
             if len(extracted_text) < 1:
-                print(f"Issue extracting text for url: {url}, language: {language}")
+                print(f"- Issue extracting text for url: {url}, language: {language}")
                 continue
 
             response = LLM_API(api_key, var, selected_model, extracted_text)
             result[url] = response
-            print("Done for %s" % (url))
+            print("- Done for %s" % (url))
 
         num_too_long = len([v for v in result.values() if len(v) > 3])
-        print(f"Number of items which analysis answer were too long: {num_too_long}")
-        print(f"Total items: {len(result)}/{sample_size}")
+        print(f"\n* Number of items which analysis answer was too long: {num_too_long}")
+        print(f"* Total items: {len(result)}/{sample_size}")
 
         with open(f"output_{var.replace(" ", "_").lower()}.json", "w") as fp:
             json.dump(result, fp)
+        print("\n* Result: ")
         print(result)
 
-    print("Done!")
+    print("\nDone!")
 
 
 # Setting up parameters ------------------------------------
