@@ -38,3 +38,12 @@ This repository is meant to serve as a working space where ongoing development a
 │   └── reflections-and-summary.md           # Cross-group evaluation and insights
 ├── sspcloud-setup.md                        # Guide to shared development environment
 └── [future-deliverables]/                   # Additional outputs from WP12 to be added later
+```
+
+---
+
+## License
+
+The source code in this repository is licensed under the [MIT License](LICENSE).
+
+Note that individual prototypes depend on third-party packages with their own licenses. Most dependencies use permissive licenses (MIT, BSD, Apache 2.0). One notable exception is **PyMuPDF** (used by `from_pdf_to_figure_prototype`), which is licensed under AGPL 3.0 or a commercial Artifex license. Users who install and run that prototype must comply with PyMuPDF's license terms.
