@@ -103,9 +103,9 @@ The cross-functional hackathon facilitated collaboration, learning and rapid pro
 
 ## Next Steps
 
-To build on the results of D12.1, the following actions are recommended:
+The following steps could be relevant for upcoming prototypes within the AIML4OS project, as part of the ongoing maintenance of the repository content, or for organisations that wish to continue the work and test the prototypes in their own environments.
 
-1. **Improve documentation and reproducibility.** Update the GitHub repositories to include a clear statement of scope and limitations, installation instructions, and environment requirements. Fix broken links (some links in the original report omitted the `.md` extension) and ensure that each prototype README explains how to run the code and where to find test data.
+1. **Improve documentation and reproducibility.** Ensure that each prototype README explains how to run the code, where to find test data, and what environment is required. Keep scope and limitation statements up to date as the prototypes evolve.
 2. **Add EU funding acknowledgement.** It is standard practice to acknowledge EU funding in open-source projects. A sentence such as "This project has received funding from the European Union's Horizon Europe programme under grant agreement No 101146355 (AIML4OS)" should be added to the top-level README along with the EU flag logo.
 3. **Extend prototypes into training resources.** Adapt the prototypes to serve as hands-on tutorials for staff in national statistical institutes. This may involve cleaning the code, writing step-by-step guides and adding unit tests.
 4. **Plan formal evaluation.** For subsequent deliverables, select use cases that allow systematic comparison between LLM-based approaches and traditional methods. Define evaluation metrics (e.g. accuracy, processing time, resource consumption) and collect representative datasets.
