@@ -15,13 +15,15 @@ client = openai.OpenAI(
     base_url="https://llm.lab.sspcloud.fr/api"
 )
 
-# available:
-# bge-m3:latest (no chat support!), gpt-oss:20b, gpt-oss:120b
+# List available models and check chat support.
+# Model availability in SSP Cloud changes over time – use this script to
+# discover current model identifiers before updating main.py.
 print('Available models:')
 models = client.models.list()
 for model in models:
     print('- ' + model.id)
 
+# Update the model name below to match a currently available model with chat support.
 selected_model = 'gpt-oss:20b'
 print('\nUsing model "%s"' % (selected_model))
 print('- Testing chat session ...')

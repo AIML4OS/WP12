@@ -1,5 +1,15 @@
 # AIML4OS – Work Package 12 (WP12): Large Language Models for Official Statistics
 
+> **EU funding:** This project has received funding from the European Union's Horizon Europe programme under grant agreement No 101146355 (AIML4OS). Any opinions expressed are those of the authors and do not necessarily reflect the views of the European Union.
+
+![EU_flag](assets/eu_flag.png)
+
+This repository contains prototypes and guidance developed within work package 12 (WP12) of AIML4OS. All prototypes here are **demonstrators** intended for experimentation and knowledge sharing. They are not production-ready solutions and should be treated accordingly.
+
+See the [D12.1 report](Deliverables/D12.1/AIML4OS%20D12.1%20Report.md) for more details on scope, limitations and future plans.
+
+---
+
 Welcome to the official repository for **Work Package 12 (WP12)** of the EU-funded project **AIML4OS – Artificial Intelligence and Machine Learning for Official Statistics**.
 
 ## Purpose of this Repository
