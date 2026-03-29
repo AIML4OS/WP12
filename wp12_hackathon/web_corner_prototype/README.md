@@ -1,5 +1,20 @@
 # Web Corner Prototype
 
+### Scope and Limitations
+
+This prototype was developed as a proof-of-concept during the WP12 hackathon. Its purpose is to explore how large language models combined with web scraping can identify domain-specific information on a set of URLs. The implementation is not intended for production use; it relies on experimental LLM APIs that evolve quickly and may change behaviour as models are updated.
+
+#### Environment requirements
+* Requires access to the SSP Cloud platform (Onyxia) or an equivalent environment. Instructions in [`main.py`](main.py) assume the environment variables defined in the hackathon.
+* Relies on Python packages listed in `requirements.txt`. Model availability in SSP Cloud may change over time; update `test_openai.py` and the model identifiers accordingly.
+
+#### Future directions
+* Evaluate the approach against manual or rule-based scraping to quantify gains in accuracy and efficiency.
+* Extend the pipeline to capture not only binary classifications but also extract structured features (e.g. email addresses, social-media links).
+* Replace hard-coded model names with configurable parameters to simplify updates when newer LLMs become available.
+
+---
+
 This prototype explores the potential of **modern web scraping techniques combined with Large Language Models (LLMs)** to support targeted content detection on web pages. The primary use case involves determining whether a given web page contains information related to a specific variable or concept, such as:
 
 > "Does this web page contain a job vacancy page?"
@@ -73,3 +88,10 @@ Run the command `python main.py` in order to run the main program.
   * Navigate to Settings > Account > API keys
 * Make sure you have access to the bucket where the input url data file is found, otherwise, use
   a backup file with url data such as the one found under `test/` folder.
+
+---
+
+> **EU funding:** The development of this prototype was co-funded by the European Union's Horizon Europe programme under grant agreement No 101146355.
+> **Disclaimer:** The content reflects only the authors' views and the EU is not responsible for any use that may be made of the information it contains.
+
+![Co-funded by the European Union](../../assets/eu_cofunded.png)

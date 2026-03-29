@@ -1,25 +1,23 @@
-# D12.1 – WP12 Prototypes: Hackathon Outcomes and Reflections
+# D12.1 - WP12 Prototypes: Hackathon Outcomes, Scope and Next Steps
 
 ## Deliverable description
 
-This deliverable (D12.1 – “WP12 LLM Prototype A”) presents the outcomes of Task T12.2 within Work Package 12 (WP12) of the AIML4OS project. The task aimed at developing at least two demonstrators based on the use of pre-existing large language models (LLMs), exploring their application to key areas in official statistics. The prototypes were developed through an international hackathon held in Lisbon in June 2025.
+This deliverable ("D12.1 - WP12 LLM prototype A") summarises the results of task T12.2 within work package 12 (WP12) of the AIML4OS project. The task aimed to develop at least two proof-of-concept demonstrators based on pre-existing large language models (LLMs) for specific use cases in official statistics. The prototypes were built during an international hackathon held in Lisbon in June 2025 and they illustrate how different combinations of open-source LLMs, frameworks and architectures can be used to solve practical problems. They are demonstrators, not production systems. Their maturity, scope and limitations are therefore described explicitly in this report.
 
-The main application and documentation are available in English. Components and supporting tools may be reused and adapted by statistical organisations in different countries, with reference code and architectural mappings provided.
+The main documentation for the prototypes is available on GitHub. Each prototype repository includes a README, an architectural diagram and source code. These resources are intended to help other national statistical institutes reproduce the work, adapt it to local conditions and provide feedback. The prototypes are not ready for production and are not maintained as such; they are intended to inspire further development and to illustrate architectural considerations.
 
 ## Abstract
 
-This report is submitted in accordance with Deliverable D12.1 within Work Package 12 (WP12) of the AIML4OS project. The aim of this deliverable was to explore practical applications of existing LLMs within official statistics through the development of demonstrators. The prototypes were produced during a collaborative hackathon involving six national statistical institutes, and reflect diverse use cases including dissemination, data extraction, and web content monitoring. The deliverable includes documentation, architecture diagrams, and reflections on technical and organisational aspects of LLM integration.
-
+Large language models are rapidly evolving and offer new opportunities for official statistics. WP12 explores how LLMs can be applied to tasks such as metadata handling, text summarisation, code translation, chatbot-based dissemination and the analysis of large documents or web content. This deliverable presents three proof-of-concept prototypes developed during the Lisbon hackathon. It highlights the architectural choices, data protection considerations, demonstration scope and limitations of each prototype. The report also summarises lessons learned and identifies open issues to be addressed in subsequent deliverables (D12.5-D12.7).
 
 ## Introduction
 
-This document presents the outcome of the prototype work carried out within Work Package 12 (WP12) of the AIML4OS project, with a specific focus on activities leading up to and during the WP12 hackathon held in Lisbon in June 2025. The deliverable D12.1, titled "WP12 LLM prototype A," is classified as a demonstrator and report, and aims to showcase concrete applications of pre-existing Large Language Models (LLMs) in official statistics. It is produced as part of Task T12.2, which targets the development of at least two prototypes in key areas such as data and metadata handling, automated text generation, production code improvement, chatbot-based dissemination, and the analysis of large documents or web content.
+The AIML4OS project aims to build a one-stop shop for artificial intelligence and machine learning in official statistics. Work package 12 focuses on large language models because of their rapidly increasing capabilities and potential to automate textual tasks. Given the pace of change in the LLM field, it is difficult to predict which specific applications will be most relevant in 2024-2027. Consequently, WP12 adopts an iterative approach: prototypes are developed using existing models to explore high-value areas, and guidance on architecture and fine-tuning is refined as experience is gained.
 
-AI systems involving generative models are composed not only of the models themselves but also of surrounding components such as APIs, frameworks, orchestration layers, RAG pipelines, and interface tools. Architectural choices regarding these components have significant implications for important aspects such as the feasibility of local deployment, data protection strategies, and the ability to mitigate issues like hallucination or low explainability. While the purpose of Task T12.1 is to provide guidance on these architectural aspects, the hands-on work carried out in Task T12.2 offers practical insights that help ground that guidance in real-world constraints. This is particularly important in a fast-moving domain such as generative AI, where purely theoretical guidance quickly risks becoming obsolete.
+Task T12.2 organised a two-day hackathon in Lisbon bringing together participants from multiple national statistical institutes. The goal was to create at least one demonstrator using pre-existing LLMs. The collaborative format resulted in three distinct prototypes. Each prototype demonstrates how a different architectural choice (e.g. local model hosting vs. API calls) influences feasibility, efficiency and data protection. Because of the limited timeframe, the focus was on rapid prototyping rather than formal evaluation. The prototypes should therefore be interpreted as proofs of concept rather than production-ready applications.
 
 To support this work, a reference diagram of generic architectural components has been used throughout the WP12 process. Originally developed within UNECE collaboration, this model illustrates how foundational AI models relate to surrounding infrastructure such as APIs, vector stores, frameworks, and user interfaces. The figure below is used throughout the report as a point of reference. The complete report can be found here: [https://unece.org/statistics/documents/2025/09/reports/generative-ai-official-statistics-hlg-mos-report](https://unece.org/statistics/documents/2025/09/reports/generative-ai-official-statistics-hlg-mos-report)
 ![Architecture overview](./Architecture%20overview%20Gen%20AI%20technical%20building%20blocks.jpg)
-
 
 ## Approach and Methodology
 
@@ -27,66 +25,92 @@ Task T12.2 was carried out through an iterative, collaborative approach that inc
 
 A shared architectural perspective was adopted early in the process, and a joint set of evaluation criteria was established to guide prototype selection and development. These criteria included: efficiency gain, reusability, data accessibility, on-premise compatibility, feasibility, robustness of evaluation, expected lifespan, and whether the use case could be considered a low-hanging fruit for national statistical institutes.
 
-Developing usable prototypes using realistic data, while still being able to openly share the results, was a recurring challenge. Significant effort went into designing use cases and workflows that could demonstrate practical value without relying on sensitive or non-shareable data sources. To address this, the group made use of the SSPCloud environment delivered by WP3. This platform provided a ready-to-use development space that supported experimentation with generative AI in a secure, reproducible and sharable setting.
+Developing usable prototypes using realistic data, while still being able to openly share the results, was a recurring challenge. Significant effort went into designing use cases and workflows that could demonstrate practical value without relying on sensitive or non-shareable data sources. To address this, the group made use of the SSP-Cloud environment delivered by WP3. This platform provided a ready-to-use development space that supported experimentation with generative AI in a secure, reproducible and sharable setting.
 
-SSPCloud also recently introduced support for locally hosted AI models, which aligned well with architectural goals related to data protection and on-premise compatibility. The availability of direct support from INSEE during the hackathon was instrumental in enabling rapid setup and problem-solving. This in turn increased the likelihood that the resulting prototypes could be reused or extended by others.
+SSP-Cloud also recently introduced support for locally hosted AI models, which aligned well with architectural goals related to data protection and on-premise compatibility. The availability of direct support from INSEE during the hackathon was instrumental in enabling rapid setup and problem-solving. This in turn increased the likelihood that the resulting prototypes could be reused or extended by others.
+
+Each prototype's README describes how to set up the environment. Nevertheless, replicability depends on the availability of similar models and infrastructure. As generative AI models evolve rapidly, users who wish to reproduce the demonstrations may need to adjust the code or host older model versions.
 
 ## Prototypes Developed
 
-While the original goal of Task T12.2 was to produce at least one demonstrator, the iterative and group based format of the hackathon encouraged multiple groups to explore different use cases in parallel. Rather than narrowing the work to a single direction, the group chose to continue developing three distinct prototypes that each offered valuable insights from an architectural and methodological perspective. These could be viewed as a form of sub-protyptes as each makes use of different design patterns and frameworks to achieve their goal.
+Three independent prototypes were produced. They are hosted on GitHub under the [wp12_hackathon](https://github.com/AIML4OS/WP12/tree/main/wp12_hackathon) directory. Each prototype repository includes source code, a README explaining the use case and an architectural diagram. The following summaries describe the demonstration context, the purpose of each prototype and its scope and limitations.
 
-Each prototype is documented with its own README, evaluation summary, architectural mapping, and source code. While the solutions differ in scope and implementation, they collectively represent a portfolio of LLM integration strategies, showing how different setups can influence performance, generalisability, and organisational fit. While the code for the prototypes include the required information to start exploring building generative ai solutions, the fast pace of development within the area of generative ai makes it very difficult to ensure that every part of the prototypes work out-of-the-box after a while. The AI models which are used within SSP Cloud may, over time, be updated or deprecated and replaced. Users would therefore need to ensure that models are kept up to date with recent developments.
+### Prototype 1: Dissemination Summary
 
-## Prototype 1: Dissemination Summary
+**Purpose.** This prototype uses a retrieval-augmented generation (RAG) pipeline to automatically summarise statistical reports and generate metadata tags in multiple languages. Users upload a PDF; the system extracts text, indexes it in a vector store and uses a prompting layer to create concise summaries in both the local language and English. Tags are derived to facilitate search and cataloguing.
 
-This prototype focuses on the dissemination process by automatically generating multilingual summaries and metadata tags from statistical reports. Reports are uploaded as PDFs, processed via a RAG pipeline, and passed to a prompting layer that produces concise summaries in both the local language and English, along with relevant tags.
+**Demonstration context.** The prototype was implemented using open-source tools such as LangChain and Ollama. It runs in the SSP-Cloud environment and relies on specific LLMs available there at the time of the hackathon. The GUI shown below is a simple front-end to facilitate interaction.
 
-The prototype was assessed as highly reusable, adaptable for local deployment, and aligned with common workflows in dissemination. Its use of open-source tools such as LangChain and Ollama, combined with a structured architecture, made it an excellent example of how modern frameworks can enhance the efficiency and control of generative AI systems. Full details on technical components and test data are available in the associated prototype folder.
-
-Example of a GUI that can simplify interaction with generative ai models and solutions.
 ![Prototype GUI example](./gui_example.png)
 
+**Scope and limitations.**
 
-## Prototype 2: From PDF to Figures
+- **Proof-of-concept status.** The prototype demonstrates how LLMs can assist with dissemination workflows but is not production-ready. It was developed during a two-day sprint and has not undergone thorough evaluation or long-term maintenance. It serves as a starting point for further research rather than a finished product.
+- **Environment dependencies.** The code assumes availability of specific models via the SSP-Cloud/Ollama environment. As the report notes, these models may be updated or replaced. Users wishing to reproduce the prototype must adapt to their own environment or pin model versions to ensure consistency.
+- **Evaluation.** The team assessed the prototype qualitatively as highly reusable and adaptable. However, no formal benchmark against existing dissemination methods was performed due to time constraints.
+- **Data protection.** The demonstration used publicly available reports. In operational settings, data protection strategies need to be defined when uploading reports containing sensitive information.
 
-This prototype explores the extraction of structured content such as tables and figures from PDF reports. The goal is to support data validation, reuse, and integration by making embedded statistical data machine-readable. Although still in early development, the prototype aims to automate content extraction workflows using open-source tools and LLM-based classification components. For the prototype, a number of annual reports were used to test the capability of the LLM-based approach. Examples of variables that the prototype tried to capture from annual reports was variables such as company name, total revenue, net profit, revenue growth percent, number of employees, carbon emission etc.
+### Prototype 2: From PDF to Figures
 
-A framework-based approach is also being applied here, reflecting a broader trend in generative AI systems where external orchestration tools are used to structure and govern interactions with models.
+**Purpose.** This prototype explores the automatic extraction of tables, figures and variables from PDF reports. By converting embedded statistical information into machine-readable form, it aims to support data validation, reuse and integration.
 
-## Prototype 3: Web Corner Prototype
+**Demonstration context.** The prototype uses LLM-based classification components within a framework-based orchestration. The team tested the approach on a small set of annual reports and focused on capturing variables such as company name, total revenue, net profit, revenue growth, number of employees and carbon emissions.
 
-This prototype targets the use of LLMs for web content classification. Users provide a set of URLs and a variable or concept (e.g., "job vacancies"), and the system determines whether each site contains matching content. This approach may be valuable in monitoring online data sources for labour market analysis or similar tasks.
+**Scope and limitations.**
 
-The solution combines scraping utilities with a prompting framework and was evaluated as having high efficiency gain and reusability. At the same time, it raised questions around how to ensure consistent evaluation, manage long-term stability of results, and handle web content diversity. As in the other prototypes, a structured architectural setup was used to map dependencies and support reusability.
+- **Early development.** The prototype is at an exploratory stage. It illustrates the potential of LLMs for content extraction but requires significant refinement before it can be used operationally.
+- **Dataset size.** Only a handful of reports were processed during the hackathon. A larger, diverse dataset is needed to evaluate accuracy and generalisability.
+- **Model limitations.** LLM-based classification may struggle with complex layouts or multilingual documents. Additional preprocessing or custom models may be necessary.
+- **External constraints.** Execution depends on the availability of PDF-parsing tools, vector stores and LLMs in the SSP-Cloud environment. The prototype does not include fallback mechanisms when these services change or become unavailable.
 
-The dataset used for evaluation consisted of company websites from four different European countries, originally complied within the WIN project to support the research on e-commerce and social media presence. The dataset also included manually labelled data related to these variables. More information about the dataset can be found here: [WIN project](https://cros.ec.europa.eu/book-page/win-hackathon)
+### Prototype 3: Web Corner Prototype
+
+**Purpose.** This prototype uses LLMs to classify web pages according to a user-specified criterion. Given a list of URLs and a concept (e.g., "job vacancies"), the system identifies whether each website contains relevant information. It can be used for monitoring online sources for labour market statistics or similar applications.
+
+**Demonstration context.** The solution combines web scraping utilities with a prompting framework. A dataset of company websites from four European countries was used to test the approach; the dataset originated from the [WIN Hackathon](https://cros.ec.europa.eu/book-page/win-hackathon) and included manually labelled variables related to e-commerce and social media presence.
+
+**Scope and limitations.**
+
+- **Proof-of-concept.** The prototype demonstrates feasibility but is not designed for continuous monitoring. It lacks error handling for dynamic web pages, rate limiting and long-term maintenance.
+- **Evaluation robustness.** The hackathon team noted high efficiency and reusability but raised questions about consistent evaluation and stability across diverse web content. No quantitative metrics were computed.
+- **Dataset bias.** The WIN Hackathon dataset may not represent all sectors or languages. Results may not generalise without retraining or adaptation.
+- **Execution constraints.** The prototype requires internet access and scraping permissions. It may be affected by website terms of service or changes in page structure.
 
 ## Common Architecture Patterns and Technical Choices
 
 Across all three prototypes, a modular architectural pattern emerged. Each group made use of frameworks such as LangChain or similar orchestration tools to manage LLM interactions. This trend reflects a broader evolution in the generative AI ecosystem, where much of the added value stems not from the base models alone, but from how they are wrapped, prompted, and integrated into surrounding systems.
 
-The prototypes illustrated how architectural decisions - such as model hosting (cloud vs. on-prem), API strategy, or data pre-processing - can significantly impact dimensions such as scalability, maintainability, and data protection. For instance, models hosted locally via tools like Ollama enabled teams to bypass external APIs, reducing concerns about data leakage or service dependency.
+The prototypes illustrated how architectural decisions - such as model hosting (cloud vs. on-prem), API strategy, or data preprocessing - can significantly impact dimensions such as scalability, maintainability, and data protection. For instance, models hosted locally via tools like Ollama enabled teams to bypass external APIs, reducing concerns about data leakage or service dependency, whereas API-based solutions offered simpler setup but raised privacy considerations.
 
-Using a shared environment like SSPCloud made it possible to test these architectural choices under common conditions. It also provided a natural bridge between experimentation and potential operationalisation, since other teams can replicate the setup and test the prototypes without starting from scratch.
+Using a shared environment like SSP-Cloud made it possible to test these architectural choices under common conditions. It also provided a natural bridge between experimentation and potential operationalisation, since other teams can replicate the setup and test the prototypes without starting from scratch.
 
-The figure including architecture components illustrates the range of architectural components considered during this work, and serves as a reference for understanding the diversity of integration paths explored.
+The figure including architecture components illustrates the range of architectural components considered during this work and serves as a reference for understanding the diversity of integration paths explored.
 
-## Reflections and Lessons Learned
+## Findings, Lessons Learned and Unresolved Issues
 
-The hackathon format provided an effective structure for collaboration, learning, and rapid prototyping. Working in cross-functional teams proved especially valuable. The combination of domain expertise, technical skill, and architectural awareness enabled each group to contribute meaningfully to both the design and implementation phases.
+### Hackathon experience and lessons learned
 
-The availability of a shared and flexible development environment proved critical. Using SSPCloud, participants were able to quickly share code, test different configurations, and document their work in a way that supports reuse. This significantly lowered the threshold for collaboration and future scaling.
+The cross-functional hackathon facilitated collaboration, learning and rapid prototyping. A shared environment lowered the threshold for experimentation and reuse. Early alignment on architecture helped avoid mismatched expectations. The prototypes demonstrated that LLM-based solutions can deliver efficiency gains and reusability for certain statistical workflows. However, the limited timeframe meant that formal evaluation and robustness testing were not possible.
 
-Early alignment on architecture helped avoid mismatched expectations and made it easier to discuss trade-offs as part of the development process. Balancing generalisability and specificity remained a key challenge, as did the need to abstract away sensitive data sources while maintaining relevance and realism.
+### Unresolved issues and implications for future deliverables
 
-Overall, the hackathon succeeded in delivering functional prototypes, capturing relevant architectural insights, and strengthening shared capacity to work with LLM-based systems in the context of official statistics.
+- **Maturity and maintenance.** None of the prototypes are maintained as production systems. They serve as starting points. The deliverable therefore highlights the need for further development to improve robustness, scalability, evaluation and documentation.
+- **Scope limitations.** The demonstrations used small datasets and controlled environments. The results cannot be generalised without further testing on diverse data. This limitation should be clearly stated to avoid misinterpretation.
+- **Environment dependencies.** Replicating the prototypes requires access to SSP-Cloud or an equivalent environment with similar models and tools. As noted, the models available in SSP-Cloud are updated regularly. Users should either lock model versions or update the code to work with newer models.
+- **Evaluation and benchmarking.** Formal evaluation against existing manual or static methods is lacking. Future work should include quantitative metrics to compare LLM-based approaches with current practices.
+- **Data protection and ethics.** Applying LLMs to official statistics raises concerns about privacy, transparency and bias. Prototypes need to incorporate auditing, interpretability and compliance with national and EU data-protection regulations.
+- **Integration with WP12 tasks.** The findings from D12.1 will feed into subsequent deliverables (D12.5-D12.7) that focus on additional prototypes and a report on architectural aspects of LLM usage. Future prototypes can build on the lessons learned here by selecting use cases that allow formal evaluation and by incorporating fine-tuning (Task T12.3).
 
-While the primary focus of the hackathon was rapid prototyping and exploring what value LLM-based approaches could provide, the limited timeframe of the hackathon did not allow for more formal evaluation of the performance of these systems compared to more manual or static approaches that are common today. A more formal evaluation is important for comparisons between currently used approaches and LLM-based approaches. Nevertheless, the participants observed encouraging results that indicate that the LLM-based approaches should be explored and evaluated further. 
+## Next Steps
 
-## Next steps
+The following steps could be relevant for upcoming prototypes within the AIML4OS project, as part of the ongoing maintenance of the repository content, or for organisations that wish to continue the work and test the prototypes in their own environments.
 
-To further develop capacity and explore the practical relevance of the prototypes and LLM-based approaches – next steps could include adapting the solutions for use as training resources. It may also be valuable to more systematically evaluate these LLM-based approaches in comparison with existing methods and technical solutions. This would contribute to a broader understanding of when and how LLM-based solutions are most appropriate within the context of official statistics. 
+1. **Extend prototypes into training resources.** Adapt the prototypes to serve as hands-on tutorials for staff in national statistical institutes. This may involve cleaning the code, writing step-by-step guides, adding unit tests, and ensuring that each prototype README explains how to run the code, where to find test data and what environment is required.
+2. **Plan formal evaluation.** For subsequent deliverables, select use cases that allow systematic comparison between LLM-based approaches and traditional methods. Define evaluation metrics (e.g. accuracy, processing time, resource consumption) and collect representative datasets.
+3. **Address environment and model updates.** Provide guidance on how to replicate the prototypes outside SSP-Cloud. Consider containerising the solutions and documenting how to specify exact model versions to ensure reproducibility.
 
-## Supporting Information
+## Acknowledgements
 
-Documentation and tutorials for the prototypes are available at: [https://github.com/AIML4OS/WP12/tree/main/wp12_hackathon](https://github.com/AIML4OS/WP12/tree/main/wp12_hackathon)
+This work was carried out as part of the AIML4OS project and received funding from the European Union's Horizon Europe programme (Grant agreement No 101146355). We thank all hackathon participants from Portugal, the Netherlands, Sweden, Ireland, Norway, France, Slovenia, Italy and Poland for their contributions. We also thank Eurostat and the Central Statistics Office (Ireland) for their feedback on the first version of this report, which has helped clarify the scope and limitations of the prototypes.
+
+![Co-funded by the European Union](../../assets/eu_cofunded.png)

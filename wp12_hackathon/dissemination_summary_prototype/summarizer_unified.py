@@ -503,8 +503,8 @@ class PDFSummarizer:
         if out_lang == "pt-pt":
             instruction_prompt = """
     Você é um estatístico especializado em relatórios. O seu objetivo é resumir o conteúdo de documentos.
-    Não deve acrescentar informações nem fazer análises – apenas resumir o que está presente no texto.
-    Ignore completamente qualquer contexto anterior – trate este documento como novo e independente.
+    Não deve acrescentar informações nem fazer análises - apenas resumir o que está presente no texto.
+    Ignore completamente qualquer contexto anterior - trate este documento como novo e independente.
     Use sempre português europeu correto, formal e objetivo.
     """
             inner_system_prompt = """
@@ -514,7 +514,7 @@ class PDFSummarizer:
     3. Manter objetividade e precisão
     4. Focar nos pontos principais e estatísticas essenciais
 
-    IMPORTANTE: Responda APENAS com JSON válido. Sem explicações, markdown ou texto adicional – apenas JSON puro.
+    IMPORTANTE: Responda APENAS com JSON válido. Sem explicações, markdown ou texto adicional - apenas JSON puro.
     """
             human_prompt = """Analise o conteúdo e devolva APENAS um JSON válido, sem qualquer outro texto.
 
@@ -539,7 +539,7 @@ class PDFSummarizer:
             instruction_prompt = """
     You are a statistician, specialized in reporting, your goal is to summarize the content of documents.
     You don't add information and you don't make analysis, you just summarize what is already there.
-    You must ignore any prior summaries, documents, or context – treat this input as completely new and independent.
+    You must ignore any prior summaries, documents, or context - treat this input as completely new and independent.
     """
             inner_system_prompt = """
     You are a professional document analyzer. Your task is to:
@@ -548,7 +548,7 @@ class PDFSummarizer:
     3. Maintain objectivity and accuracy
     4. Focus on the main points and key findings
 
-    IMPORTANT: Respond ONLY with valid JSON. No explanations, no markdown, no additional text – just JSON.
+    IMPORTANT: Respond ONLY with valid JSON. No explanations, no markdown, no additional text - just JSON.
     """
             human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no additional text.
 
