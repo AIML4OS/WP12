@@ -30,12 +30,12 @@ A report document in PDF format, typically written by a subject-matter expert or
 
 ### Process
 An AI-powered workflow performs the following steps:
-1. **PDF Ingestion and Processing** – Text is extracted and prepared for semantic search.
-2. **RAG Pipeline Setup** – The processed content is fed into a Retrieval-Augmented Generation (RAG) system.
-3. **LLM Prompting** – A structured prompt generates:
+1. **PDF Ingestion and Processing** - Text is extracted and prepared for semantic search.
+2. **RAG Pipeline Setup** - The processed content is fed into a Retrieval-Augmented Generation (RAG) system.
+3. **LLM Prompting** - A structured prompt generates:
    - A short **summary** of the document in both local language and English.
    - A set of **keywords/tags** describing the thematic content.
-4. **Output Delivery** – Results are returned to the user for review or integration into the publication pipeline.
+4. **Output Delivery** - Results are returned to the user for review or integration into the publication pipeline.
 
 ---
 

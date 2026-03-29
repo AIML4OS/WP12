@@ -1,4 +1,4 @@
-# From PDF to Figures – Prototype
+# From PDF to Figures - Prototype
 
 ### Scope and Limitations
 

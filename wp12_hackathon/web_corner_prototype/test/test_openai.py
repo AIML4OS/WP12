@@ -16,7 +16,7 @@ client = openai.OpenAI(
 )
 
 # List available models and check chat support.
-# Model availability in SSP Cloud changes over time – use this script to
+# Model availability in SSP Cloud changes over time - use this script to
 # discover current model identifiers before updating main.py.
 print('Available models:')
 models = client.models.list()
