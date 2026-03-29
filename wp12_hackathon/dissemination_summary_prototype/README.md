@@ -85,4 +85,4 @@ Please refer to `architecture.png` in this directory for a visual representation
 > **EU funding:** The development of this prototype was co-funded by the European Union's Horizon Europe programme under grant agreement No 101146355.
 > **Disclaimer:** The content reflects only the authors' views and the EU is not responsible for any use that may be made of the information it contains.
 
-![EU_flag](../../assets/eu_flag.png)
+![Co-funded by the European Union](../../assets/eu_cofunded.png)

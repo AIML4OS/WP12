@@ -2,7 +2,7 @@
 
 > **EU funding:** This project has received funding from the European Union's Horizon Europe programme under grant agreement No 101146355 (AIML4OS). Any opinions expressed are those of the authors and do not necessarily reflect the views of the European Union.
 
-![EU_flag](assets/eu_flag.png)
+![Co-funded by the European Union](assets/eu_cofunded.png)
 
 This repository contains prototypes and guidance developed within work package 12 (WP12) of AIML4OS. All prototypes here are **demonstrators** intended for experimentation and knowledge sharing. They are not production-ready solutions and should be treated accordingly.
 
