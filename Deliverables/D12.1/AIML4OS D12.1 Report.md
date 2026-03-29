@@ -78,7 +78,13 @@ Three independent prototypes were produced. They are hosted on GitHub under the 
 
 ## Common Architecture Patterns and Technical Choices
 
-Across all three prototypes, a modular architecture emerged. Frameworks such as LangChain and other orchestration tools were used to manage interactions between LLMs, vector stores and user interfaces. Architectural choices (e.g. hosting models locally vs. using external APIs, selection of retrieval pipelines, data preprocessing) significantly influenced scalability, maintainability and data protection. Hosting models locally via tools like Ollama reduced concerns about data leakage and service dependency, whereas API-based solutions offered simpler setup but raised privacy considerations. The SSP-Cloud environment provided a neutral platform to test these choices and to share infrastructure across teams.
+Across all three prototypes, a modular architectural pattern emerged. Each group made use of frameworks such as LangChain or similar orchestration tools to manage LLM interactions. This trend reflects a broader evolution in the generative AI ecosystem, where much of the added value stems not from the base models alone, but from how they are wrapped, prompted, and integrated into surrounding systems.
+
+The prototypes illustrated how architectural decisions - such as model hosting (cloud vs. on-prem), API strategy, or data preprocessing - can significantly impact dimensions such as scalability, maintainability, and data protection. For instance, models hosted locally via tools like Ollama enabled teams to bypass external APIs, reducing concerns about data leakage or service dependency, whereas API-based solutions offered simpler setup but raised privacy considerations.
+
+Using a shared environment like SSP-Cloud made it possible to test these architectural choices under common conditions. It also provided a natural bridge between experimentation and potential operationalisation, since other teams can replicate the setup and test the prototypes without starting from scratch.
+
+The figure including architecture components illustrates the range of architectural components considered during this work and serves as a reference for understanding the diversity of integration paths explored.
 
 ## Findings, Lessons Learned and Unresolved Issues
 
