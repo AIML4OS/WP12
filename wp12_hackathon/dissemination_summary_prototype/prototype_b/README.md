@@ -15,16 +15,16 @@ This Proof-of-Concept (POC) is an AI-powered system capable of **consuming** and
 ## 🛠️ Tech Stack
 
 - Python 3.12+
-- PDF Parsing: `PyPDFLoader` (from LangChain Community)
+- PDF Parsing: `PyPDFLoader` (from LangChain Community) and `pypdf`
 - Vector Database: `ChromaDB`
-- Templates: `LangChain` ()
+- Templates: `LangChain`
 - AI Framework: `Ollama` 
 
 All **free**, and **local**!
 
 
-## 🚀 Getting Started
-
+## 🚀 Getting Started Locally
+(For Onyxia see below)
 
 ### 1. Set Virtual Environment
 Create a venv inside the `dissemination_summary_prototype` folder:
@@ -65,10 +65,9 @@ Just run:
 ```bash
 python main.py
 ```
-<figure>
-  <img src="pictures/nicegui_interface.png" alt="Description" width="600"/>
-  <figcaption>Figure 1: In Portuguese.</figcaption>
-</figure>
+This should open a new tab in your web browser, showing you the web GUI.
+See below for a picture of the current web GUI.
+
 
 ### 5. Notes on Infrastructure
 
@@ -82,13 +81,39 @@ ollama_host = "http://new_ollama_ip:11434"
 llm = Ollama(model="llama3", base_url=ollama_host)
 ```
 
+## 🚀 Getting Started in Onyxia
+
+If you want to run this in Onyxia:
+1. [Launch VSCode Service](https://datalab.sspcloud.fr/launcher/ide/vscode-pytorch-gpu?name=vscode-pytorch-gpu&version=2.3.16&s3=region-79669f20&init.personalInit=«https%3A%2F%2Fraw.githubusercontent.com%2FAIML4OS%2FWP12%2Frefs%2Fheads%2Fmain%2Fwp12_hackathon%2Fdissemination_summary_prototype%2Fprototype_b%2Fonyxia_init.sh»&networking.user.enabled=true&networking.user.ports[0]=8000&autoLaunch=true)
+
+2. Open the terminal, and in `~/work` directory, which should show up as the default one, and run the command:
+```bash
+./launch_app
+```
+This will install many necessary components. You may need to wait for some 5min. 
+(Currently, I haven't been able to run it as an init script in Onyxia, since the script takes too long and onyxia thinks the container is dead.)
+
+3. A new tab should automatically open. If it does not, VSCode shows you `http://localhost:8000` in the terminal.
+Do Ctrl+click on the link, and it will redirect you to a new tab with the WebGUI.
+
+
+## Web GUI
+
+Once you open the app, you should see something similar to this:
+<figure>
+  <img src="pictures/nicegui_interface.png" alt="Description" width="600"/>
+  <figcaption>Figure 1: In Portuguese.</figcaption>
+</figure>
+
 ## 🧾 Example Use Cases
 
 - Summarize international research papers.
 - Extract executive summaries from foreign-language reports.
 - Generate custom summaries by topic, tone, or length.
 - Translate and summarize in the user’s preferred language.
-- All of these, **locally** and **free**! 
+- All of these, **locally** and **free**!
+
+Currently, the prototype is capable of summarising pdf documents in different source languages (swedish, portuguese, english, french, and so on) into portuguese. Later on, we can add a feature, where we let the user choose its target language.
 
 ## 📂 Project Structure
 
@@ -111,7 +136,8 @@ prototybe_b/
 - [x] RAGSystem
 - [ ] Improve Templates
 - [ ] Improve Web GUI
-
+- [ ] Improve Onyxia installation (cleaning req file and using UV)
+- [ ] Put Onyxia running on gemma3 models
 
 
 Made with (several) 🤖 , and ❤️ by Ivo Tavares

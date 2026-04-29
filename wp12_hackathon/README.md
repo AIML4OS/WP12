@@ -1,4 +1,4 @@
-# WP12 Hackathon – Lisbon 2025
+# WP12 Hackathon - Lisbon 2025
 
 This folder contains the outputs from the two-day WP12 hackathon held in **Lisbon, June 2025**, with participation from project members representing **Portugal, the Netherlands, Sweden, Ireland, and Norway**, and with **technical support from France**, who, through WP3, delivers the shared data lab infrastructure (SSPCloud) used in the AIML4OS project.
 

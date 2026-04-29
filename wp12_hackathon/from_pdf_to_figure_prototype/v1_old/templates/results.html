@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ data.company_profile.name }} - Analysis Results</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="results-header">
+            <div class="back-button">
+                <a href="{{ url_for('index') }}">
+                    <i class="fas fa-arrow-left"></i> New Analysis
+                </a>
+            </div>
+            <div class="company-header">
+                <h1>{{ data.company_profile.name }}</h1>
+                <div class="industry-badge">
+                    <i class="fas fa-industry"></i>
+                    {{ data.company_profile.detected_industry.title() }}
+                </div>
+            </div>
+        </header>
+
+        <!-- Key Metrics Dashboard -->
+        <div class="metrics-dashboard">
+            <!-- Universal Metrics -->
+            <div class="metrics-section">
+                <h2><i class="fas fa-chart-bar"></i> Financial Overview</h2>
+                <div class="metrics-grid">
+                    {% for metric_name, metric_data in data.universal_metrics.items() %}
+                    <div class="metric-card">
+                        <div class="metric-icon">
+                            <i class="fas fa-euro-sign"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>{{ metric_name.replace('_', ' ').title() }}</h3>
+                            <div class="metric-value">
+                                {{ "{:,.0f}".format(metric_data.value) }} 
+                                <span class="metric-unit">{{ metric_data.unit.replace('_', ' ') }}</span>
+                            </div>
+                            <div class="metric-period">{{ metric_data.period }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Industry-Specific Metrics -->
+            <div class="metrics-section">
+                <h2><i class="fas fa-cogs"></i> {{ data.company_profile.detected_industry.title() }} Metrics</h2>
+                <div class="metrics-grid">
+                    {% for metric_name, metric_data in data.industry_specific_metrics.items() %}
+                    <div class="metric-card industry-metric">
+                        <div class="metric-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div class="metric-content">
+                            <h3>{{ metric_name.replace('_', ' ').title() }}</h3>
+                            <div class="metric-value">
+                                {{ "{:,.0f}".format(metric_data.value) if metric_data.value > 1 else "{:.1f}".format(metric_data.value) }}
+                                <span class="metric-unit">{{ metric_data.unit.replace('_', ' ') }}</span>
+                            </div>
+                            <div class="metric-period">{{ metric_data.period }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Business Intelligence -->
+            <div class="insights-section">
+                <h2><i class="fas fa-lightbulb"></i> Business Intelligence</h2>
+                <div class="insights-grid">
+                    {% for insight in data.business_intelligence %}
+                    <div class="insight-card">
+                        <div class="insight-header">
+                            <h3>{{ insight.concept }}</h3>
+                            <div class="confidence-badge">
+                                {{ "{:.0%}".format(insight.confidence) }} confidence
+                            </div>
+                        </div>
+                        <p class="insight-text">{{ insight.insight }}</p>
+                        <div class="supporting-metrics">
+                            <small>Based on: {{ insight.supporting_metrics | join(', ') }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Coverage Analysis -->
+            <div class="coverage-section">
+                <h2><i class="fas fa-analytics"></i> Analysis Coverage</h2>
+                <div class="coverage-stats">
+                    <div class="coverage-item">
+                        <div class="coverage-number">{{ data.coverage_analysis.total_metrics }}</div>
+                        <div class="coverage-label">Total Metrics Found</div>
+                    </div>
+                    <div class="coverage-item">
+                        <div class="coverage-number">{{ data.coverage_analysis.universal_coverage }}</div>
+                        <div class="coverage-label">Universal Metrics</div>
+                    </div>
+                    <div class="coverage-item">
+                        <div class="coverage-number">{{ data.coverage_analysis.industry_coverage }}</div>
+                        <div class="coverage-label">Industry Metrics</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

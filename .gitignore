@@ -9,3 +9,5 @@ wp12_hackathon/dissemination_summary_prototype/data/*
 *.pdf
 */connect_storage.py
 .vscode
+api_key.txt
+*.json

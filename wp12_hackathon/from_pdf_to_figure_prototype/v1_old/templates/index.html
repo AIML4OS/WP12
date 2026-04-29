@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Company Analyzer</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-brain"></i> Intelligent Company Analyzer</h1>
+                <p>Upload any annual report and get instant business intelligence</p>
+            </div>
+        </header>
+
+        <!-- Upload Section -->
+        <div class="upload-section">
+            <div class="upload-card">
+                <div class="upload-header">
+                    <h2><i class="fas fa-upload"></i> Analyze Your Document</h2>
+                    <p>Drag & drop a PDF or paste a URL to get started</p>
+                </div>
+
+                <!-- File Upload -->
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drop your PDF here</h3>
+                        <p>or click to browse files</p>
+                        <input type="file" id="fileInput" accept=".pdf" hidden>
+                    </div>
+                </div>
+
+                <!-- URL Input -->
+                <div class="url-section">
+                    <div class="url-input-group">
+                        <i class="fas fa-link"></i>
+                        <input type="url" id="urlInput" placeholder="Or paste a PDF URL here...">
+                        <button id="analyzeUrl" class="btn-primary">
+                            <i class="fas fa-search"></i> Analyze
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Processing -->
+                <div class="processing-section" id="processingSection" style="display: none;">
+                    <div class="processing-card">
+                        <div class="loading-spinner"></div>
+                        <h3>Analyzing Document...</h3>
+                        <p id="processingStatus">Detecting industry and extracting insights</p>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="processing-steps">
+                            <div class="step active" id="step1">
+                                <i class="fas fa-search"></i> Document Analysis
+                            </div>
+                            <div class="step" id="step2">
+                                <i class="fas fa-industry"></i> Industry Detection
+                            </div>
+                            <div class="step" id="step3">
+                                <i class="fas fa-chart-line"></i> Metrics Extraction
+                            </div>
+                            <div class="step" id="step4">
+                                <i class="fas fa-brain"></i> Intelligence Synthesis
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Analyses -->
+        <div class="recent-section">
+            <h2><i class="fas fa-history"></i> Recent Analyses</h2>
+            <div class="recent-grid" id="recentGrid">
+                <!-- Recent analyses will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
