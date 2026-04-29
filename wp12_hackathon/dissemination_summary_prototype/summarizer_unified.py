@@ -6,13 +6,14 @@ import os
 
 # Get the directory where this script is located
 script_dir = os.path.dirname(os.path.abspath(__file__))
-# Load .env from the script's directory, not the current working directory
-load_dotenv(os.path.join(script_dir, '.env'))
+# Load .env from the script's directory, not the current working directory.
+# override=True ensures stale shell-exported SSP_KEY values do not shadow .env.
+load_dotenv(os.path.join(script_dir, '.env'), override=True)
 
 
 import warnings
 import time
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
@@ -37,9 +38,64 @@ import torch
 import logging
 import json
 from langchain_community.vectorstores.utils import filter_complex_metadata
+from openai import AuthenticationError
 
 from langchain_core.embeddings import Embeddings
 import requests
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+
+def _env_float(key: str, default: float) -> float:
+    raw = os.getenv(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(key: str, default: int) -> int:
+    raw = os.getenv(key)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _run_callable_with_timeout(fn, timeout_sec: float, timeout_message: str):
+    """
+    Run a blocking callable in a worker thread; abort waiting after timeout_sec.
+
+    Note: the worker may keep running in the background after timeout (Docling has no cancel API).
+    """
+    if timeout_sec <= 0:
+        return fn()
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = pool.submit(fn)
+        return fut.result(timeout=timeout_sec)
+    except FuturesTimeout as exc:
+        raise RuntimeError(timeout_message) from exc
+    finally:
+        pool.shutdown(wait=False)
+
+
+def _attach_timing_breakdown(payload: Any, timing: Dict[str, float]) -> Any:
+    """Merge per-phase timings into the result dict for the UI (values are seconds)."""
+    if isinstance(payload, dict):
+        merged = dict(payload)
+        merged["_timing_sec"] = timing
+        return merged
+    return {
+        "summary": str(payload),
+        "keywords": [],
+        "tags": [],
+        "_timing_sec": timing,
+    }
+
 
 # Suppress PyTorch MPS warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
@@ -47,6 +103,233 @@ warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
 # Configure logging - reduce verbosity
 logging.basicConfig(level=logging.WARNING)  # Changed from INFO to WARNING
 logger = logging.getLogger(__name__)
+
+
+# Fallback lists when model discovery fails or keys are missing (UI still offers a choice).
+DEFAULT_LLM_MODELS_FALLBACK: Dict[str, List[str]] = {
+    "ssp": ["qwen3-6-35b-moe"],
+    "ollama": ["llama3.1:8b"],
+    "openai": ["gpt-4o-mini", "gpt-4o"],
+}
+
+
+def _ollama_http_get(url: str, timeout: float) -> requests.Response:
+    """
+    GET without trusting HTTP(S)_PROXY so localhost / 127.0.0.1 still works when env proxies
+    would otherwise break browser-identical URLs like http://localhost:11434.
+    """
+    host_part = url.split("://", 1)[-1].split("/", 1)[0].lower()
+    localish = host_part.startswith("127.") or host_part.startswith("localhost")
+    if localish:
+        session = requests.Session()
+        session.trust_env = False
+        return session.get(url, timeout=timeout)
+    return requests.get(url, timeout=timeout)
+
+
+def _ollama_chat_model_names_from_tags_body(body: Any) -> List[str]:
+    """
+    Parse GET /api/tags JSON. Each row may include ``name``, ``model``, and ``details``.
+
+    Omits typical embedding-only pulls from the chat dropdown (e.g. ``nomic-embed-text``).
+    """
+    if not isinstance(body, dict):
+        return []
+    names: List[str] = []
+    for row in body.get("models") or []:
+        if not isinstance(row, dict):
+            continue
+        label = (row.get("name") or row.get("model") or "").strip()
+        if not label:
+            continue
+        low = label.lower()
+        details = row.get("details") if isinstance(row.get("details"), dict) else {}
+        family = (details.get("family") or "").lower()
+        if "embed" in low or family == "nomic-bert":
+            continue
+        names.append(label)
+    return sorted(set(names))
+
+
+def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Find a running Ollama API and list tags.
+
+    1. Prefer GET ``/api/tags`` — lists installed models (may be empty).
+    2. If tags fails, GET ``/api/version`` — JSON like ``{"version":"0.13.4"}`` confirms the
+       daemon (same endpoint browsers/tools often hit).
+
+    Tries ``preferred_base_url`` (if set), ``OLLAMA_BASE_URL``, then 127.0.0.1 and localhost.
+
+    Returns dict keys: ``ok`` (bool), ``base_url`` (Optional[str]), ``models`` (List[str]),
+    ``error`` (Optional[str]).
+    """
+    candidates: List[str] = []
+    pb = (preferred_base_url or "").strip()
+    if pb:
+        candidates.append(pb.rstrip("/"))
+    env_b = os.getenv("OLLAMA_BASE_URL")
+    if env_b and env_b.strip():
+        eb = env_b.strip().rstrip("/")
+        if eb not in candidates:
+            candidates.append(eb)
+    for b in ("http://127.0.0.1:11434", "http://localhost:11434"):
+        if b not in candidates:
+            candidates.append(b)
+
+    last_err: Optional[str] = None
+    for base in candidates:
+        tags_note = ""
+
+        try:
+            rt = _ollama_http_get(f"{base}/api/tags", timeout=25)
+            if rt.status_code == 200:
+                body = rt.json()
+                models = _ollama_chat_model_names_from_tags_body(body)
+                return {
+                    "ok": True,
+                    "base_url": base,
+                    "models": models,
+                    "error": None,
+                }
+            tags_note = f"/api/tags HTTP {rt.status_code}"
+        except requests.exceptions.RequestException as e:
+            tags_note = f"/api/tags: {e}"
+        except Exception as e:
+            tags_note = f"/api/tags: {e}"
+
+        try:
+            rv = _ollama_http_get(f"{base}/api/version", timeout=8)
+            if rv.status_code == 200:
+                data = rv.json()
+                if isinstance(data, dict) and data.get("version"):
+                    return {
+                        "ok": True,
+                        "base_url": base,
+                        "models": [],
+                        "error": None,
+                    }
+            ver_note = f"/api/version HTTP {rv.status_code}"
+        except requests.exceptions.RequestException as e:
+            ver_note = f"/api/version: {e}"
+        except Exception as e:
+            ver_note = f"/api/version: {e}"
+
+        last_err = f"{base}: {tags_note}; {ver_note}"
+
+    return {
+        "ok": False,
+        "base_url": None,
+        "models": [],
+        "error": last_err
+        or "Ollama not reachable — install from https://ollama.com and run `ollama serve` (or ensure it is running).",
+    }
+
+
+def _parse_openai_compatible_models_payload(payload: Any) -> List[str]:
+    """Extract model ids from OpenAI-style GET /v1/models JSON."""
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("data")
+    if rows is None:
+        rows = payload.get("models")
+    if not isinstance(rows, list):
+        return []
+    ids: List[str] = []
+    for row in rows:
+        if isinstance(row, str):
+            ids.append(row)
+        elif isinstance(row, dict):
+            mid = row.get("id") or row.get("name")
+            if mid:
+                ids.append(str(mid))
+    return ids
+
+
+def fetch_llm_models_for_provider(
+    provider: str,
+    *,
+    api_key: Optional[str] = None,
+    ollama_base_url: str = "http://localhost:11434",
+) -> List[str]:
+    """
+    Discover model names for the chosen LLM backend.
+
+    - ollama: GET {base}/api/tags
+    - ssp: OpenAI-compatible /v1/models on the SSP host (tries a few URLs)
+    - openai: GET https://api.openai.com/v1/models
+    """
+    p = (provider or "").lower().strip()
+    if p == "ollama":
+        hint = (ollama_base_url or "").strip() or None
+        pr = probe_ollama_runtime(hint)
+        if not pr["ok"]:
+            raise RuntimeError(pr["error"] or "Ollama unreachable")
+        out = pr["models"]
+        return out if out else list(DEFAULT_LLM_MODELS_FALLBACK["ollama"])
+
+    if p == "openai":
+        key = api_key or os.getenv("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("OPENAI_API_KEY is not set (env or .env).")
+        r = requests.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=45,
+        )
+        if r.status_code == 401:
+            raise RuntimeError(
+                "OpenAI returned 401. Check OPENAI_API_KEY in `.env`."
+            )
+        r.raise_for_status()
+        ids = _parse_openai_compatible_models_payload(r.json())
+        preferred = [
+            i
+            for i in ids
+            if any(
+                x in i
+                for x in ("gpt-4", "gpt-3.5-turbo", "gpt-5", "o1", "o3", "gpt-4o")
+            )
+        ]
+        out = sorted(set(preferred)) if preferred else sorted(set(ids))[:80]
+        return out if out else list(DEFAULT_LLM_MODELS_FALLBACK["openai"])
+
+    if p == "ssp":
+        key = api_key or os.getenv("SSP_KEY")
+        if not key:
+            raise RuntimeError("SSP_KEY is not set (env or .env).")
+        candidates = [
+            "https://llm.lab.sspcloud.fr/api/v1/models",
+            "https://llm.lab.sspcloud.fr/v1/models",
+        ]
+        last_exc: Optional[Exception] = None
+        for url in candidates:
+            try:
+                r = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=45,
+                )
+                if r.status_code == 401:
+                    raise RuntimeError(
+                        "SSP LLM returned 401. Check SSP_KEY in `.env`."
+                    )
+                r.raise_for_status()
+                ids = _parse_openai_compatible_models_payload(r.json())
+                out = sorted(set(ids))
+                if out:
+                    return out
+            except Exception as e:
+                last_exc = e
+                continue
+        if last_exc:
+            raise RuntimeError(
+                f"Could not list SSP models ({last_exc}). "
+                "Using fallback list; you can still pick a model name manually if needed."
+            ) from last_exc
+        return list(DEFAULT_LLM_MODELS_FALLBACK["ssp"])
+
+    raise ValueError(f"Unknown LLM provider: {provider}")
 
 
 def timed_execution(message_template: str = None):
@@ -179,16 +462,25 @@ class PDFSummarizer:
         """
         Create LLM instance based on provider.
         """
+        llm_timeout = _env_float("LLM_REQUEST_TIMEOUT_SEC", 600.0)
+        llm_retries = max(0, min(10, _env_int("LLM_MAX_RETRIES", 2)))
+
         if provider.lower() == "openai":
+            model_name = kwargs.get("model_name") or kwargs.get("model", "gpt-4o-mini")
+            api_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY")
             return ChatOpenAI(
-                model_name=kwargs.get("model_name", "gpt-3.5-turbo"),
-                temperature=kwargs.get("temperature", 0.7)
+                model_name=model_name,
+                temperature=kwargs.get("temperature", 0.7),
+                api_key=api_key,
+                request_timeout=llm_timeout,
+                max_retries=llm_retries,
             )
         elif provider.lower() == "ollama":
             return ChatOllama(
                 model=kwargs.get("model", "llama3.1:8b"),
                 temperature=kwargs.get("temperature", 0.7),
-                base_url=kwargs.get("base_url", "http://localhost:11434")
+                base_url=kwargs.get("base_url", "http://localhost:11434"),
+                sync_client_kwargs={"timeout": llm_timeout},
             )
         elif provider.lower() == "ssp":
             #model = "mistral-small3.1:latest",
@@ -197,11 +489,27 @@ class PDFSummarizer:
             return ChatOpenAI(
                 api_key = kwargs.get("api_key"),  # replace with your key
                 base_url="https://llm.lab.sspcloud.fr/api",
-                model=kwargs.get("model", "mistral-small3.2:latest"),
-                temperature=kwargs.get("temperature", 0.7)
+                #model=kwargs.get("model", "mistral-small3.2:latest"),
+                model=kwargs.get("model", "qwen3-6-35b-moe"),
+                temperature=kwargs.get("temperature", 0.7),
+                request_timeout=llm_timeout,
+                max_retries=llm_retries,
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
+
+    @staticmethod
+    def _raise_with_auth_guidance(exc: Exception) -> None:
+        """
+        Raise a friendlier authentication error with remediation steps.
+        """
+        message = str(exc)
+        if "401" in message or "token is invalid" in message.lower() or "session has expired" in message.lower():
+            raise RuntimeError(
+                "Authentication with SSP LLM failed (401). "
+                "Your `SSP_KEY` is expired or invalid. Please set a valid key in `.env` and restart the app."
+            ) from exc
+        raise exc
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}")
     def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200):
@@ -215,32 +523,45 @@ class PDFSummarizer:
         # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
         # - 5 - return the summary
 
+        timing: Dict[str, float] = {}
+
         if use_vector_store:
+            t0 = time.perf_counter()
             if document_loader == "docling":
                 chunks = self._load_pdf_with_docling(pdf_path)
             elif document_loader == "pypdf":
                 chunks = self._load_pdf_with_pypdf(pdf_path)
             else:
                 raise ValueError(f"Unsupported document loader: {document_loader}")
-            
+            timing["chunks"] = time.perf_counter() - t0
+
+            t1 = time.perf_counter()
             vector_store = self._get_vector_store(chunks, embedding_model, use_remote_embedding)
             retriever = vector_store.as_retriever(search_kwargs={"k": 10})  # Increased from 5 to 10
-
-            # Create retrieval chain with integrated prompting
             retrieval_chain = self._create_retrieval_chain(retriever)
-            
-            result = retrieval_chain.invoke({
-                "input": "Summarize the main content and statistics from this document about air transport activity",
-                "max_keywords": max_keywords,
-                "max_tags": max_tags,
-                "max_words": max_words,
-                "out_lang": out_lang
-            })
-            # Return the JSON result directly
-            return result.get("answer", result)
-        
+            timing["vector_store"] = time.perf_counter() - t1
+
+            try:
+                t2 = time.perf_counter()
+                result = retrieval_chain.invoke({
+                    "input": "Summarize the main content and statistics from this document about air transport activity",
+                    "max_keywords": max_keywords,
+                    "max_tags": max_tags,
+                    "max_words": max_words,
+                    "out_lang": out_lang
+                })
+                timing["llm"] = time.perf_counter() - t2
+            except AuthenticationError as exc:
+                self._raise_with_auth_guidance(exc)
+            except Exception as exc:
+                # Some wrappers may rethrow auth as generic exceptions.
+                self._raise_with_auth_guidance(exc)
+            out = result.get("answer", result)
+            return _attach_timing_breakdown(out, timing)
+
         else:
             context = "\n\n=== Document Section ===\n\n"
+            t0 = time.perf_counter()
             if document_loader == "docling":
                 pdf_text = self._load_pdf_txt_with_docling(pdf_path)
                 context = context + pdf_text
@@ -249,19 +570,27 @@ class PDFSummarizer:
                 context = context + pdf_text
             else:
                 raise ValueError(f"Unsupported document loader: {document_loader}")
+            timing["pdf_load"] = time.perf_counter() - t0
 
-            # 3 - create the summary chain
             chain = self._create_summary_chain()
 
-            result = chain.invoke({
-                "content": context,
-                "max_keywords": max_keywords,
-                "max_tags": max_tags,
-                "max_words": max_words,
-                "out_lang": out_lang
-            })
+            try:
+                t1 = time.perf_counter()
+                result = chain.invoke({
+                    "content": context,
+                    "max_keywords": max_keywords,
+                    "max_tags": max_tags,
+                    "max_words": max_words,
+                    "out_lang": out_lang
+                })
+                timing["llm"] = time.perf_counter() - t1
+            except AuthenticationError as exc:
+                self._raise_with_auth_guidance(exc)
+            except Exception as exc:
+                # Some wrappers may rethrow auth as generic exceptions.
+                self._raise_with_auth_guidance(exc)
 
-            return result
+            return _attach_timing_breakdown(result, timing)
 
 
     def _create_summary_chain(self):
@@ -272,30 +601,33 @@ class PDFSummarizer:
         return chat_prompt | self.llm | self._safe_json_parse
 
 
+    def _docling_plain_text_sync(self, pdf_path: str) -> str:
+        """Full Docling conversion + text extraction (runs in worker thread when timed out)."""
+        with self._suppress_logging():
+            docling_converter = DocumentConverter()
+            result = docling_converter.convert(pdf_path)
+
+        text_content = []
+        for text_item in result.document.texts:
+            if text_item.text and text_item.text.strip():
+                text_content.append(text_item.text.strip())
+        return "\n\n".join(text_content)
+
     def _load_pdf_txt_with_docling(self, pdf_path: str) -> str:
         """
         Load PDF using docling's advanced parsing capabilities.
+        Bounded by DOCLING_CONVERT_TIMEOUT_SEC (default 900s) so the UI cannot hang forever.
         """
-        try:
-            # Temporarily suppress logging during conversion
-            with self._suppress_logging():
-                # Convert the PDF using docling
-                docling_converter = DocumentConverter()
-                result = docling_converter.convert(pdf_path)
-            
-            # Extract text content with proper reading order
-            text_content = []
-            
-            # Get text from the document body
-            for text_item in result.document.texts:
-                if text_item.text and text_item.text.strip():
-                    text_content.append(text_item.text.strip())
-            
-            # Join all text content with proper spacing
-            return "\n\n".join(text_content)
-            
-        except Exception as e:
-            raise e
+        timeout = _env_float("DOCLING_CONVERT_TIMEOUT_SEC", 900.0)
+        msg = (
+            f"Docling conversion exceeded {timeout:.0f}s while reading the PDF. "
+            "Try PDF loader PyPDF, a smaller document, or raise DOCLING_CONVERT_TIMEOUT_SEC."
+        )
+        return _run_callable_with_timeout(
+            lambda: self._docling_plain_text_sync(pdf_path),
+            timeout,
+            msg,
+        )
 
     def _load_pdf_txt_with_pypdf(self, pdf_path: str) -> str:
         """
@@ -305,47 +637,51 @@ class PDFSummarizer:
         pages = loader.load()
         return "\n".join(page.page_content for page in pages)
 
+    def _docling_chunks_sync(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[str]:
+        export_type = ExportType.DOC_CHUNKS
+        with self._suppress_logging():
+            loader = DoclingLoader(
+                file_path=pdf_path,
+                export_type=export_type,
+                chunker=HybridChunker(tokenizer=sentence_transformer_model),
+            )
+
+            docs = loader.load()
+            if export_type == ExportType.DOC_CHUNKS:
+                splits = docs
+                splits = filter_complex_metadata(splits)
+
+            elif export_type == ExportType.MARKDOWN:
+                from langchain_text_splitters import MarkdownHeaderTextSplitter
+
+                splitter = MarkdownHeaderTextSplitter(
+                    headers_to_split_on=[
+                        ("#", "Header_1"),
+                        ("##", "Header_2"),
+                        ("###", "Header_3"),
+                    ],
+                )
+                splits = [split for doc in docs for split in splitter.split_text(doc.page_content)]
+            else:
+                raise ValueError(f"Unexpected export type: {export_type}")
+
+            return splits
+
     def _load_pdf_with_docling(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[str]:
         """
         Load PDF using docling's advanced parsing capabilities.
+        Same timeout as plain Docling path (DOCLING_CONVERT_TIMEOUT_SEC).
         """
-        export_type = ExportType.DOC_CHUNKS
-        try:
-            # Temporarily suppress logging during conversion
-            with self._suppress_logging():
-                # Convert the PDF using docling
-                loader = DoclingLoader(
-                    file_path=pdf_path,
-                    export_type=export_type,
-                    chunker=HybridChunker(tokenizer=sentence_transformer_model),
-                )
-
-                docs = loader.load()
-                # split the docs into chunks
-                if export_type == ExportType.DOC_CHUNKS:
-                    splits = docs
-                    # Filter complex metadata from docling documents
-                    splits = filter_complex_metadata(splits)
-
-                elif export_type == ExportType.MARKDOWN:
-                    from langchain_text_splitters import MarkdownHeaderTextSplitter
-
-                    splitter = MarkdownHeaderTextSplitter(
-                        headers_to_split_on=[
-                            ("#", "Header_1"),
-                            ("##", "Header_2"),
-                            ("###", "Header_3"),
-                        ],
-                    )
-                    splits = [split for doc in docs for split in splitter.split_text(doc.page_content)]
-                else:
-                    raise ValueError(f"Unexpected export type: {export_type}")
-                
-                return splits
-            
-
-        except Exception as e:
-            raise e
+        timeout = _env_float("DOCLING_CONVERT_TIMEOUT_SEC", 900.0)
+        msg = (
+            f"Docling chunking exceeded {timeout:.0f}s. "
+            "Try PDF loader PyPDF, or raise DOCLING_CONVERT_TIMEOUT_SEC."
+        )
+        return _run_callable_with_timeout(
+            lambda: self._docling_chunks_sync(pdf_path, sentence_transformer_model),
+            timeout,
+            msg,
+        )
 
     def _get_vector_store(self, splits: List[str], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True) -> str:
         """
@@ -357,8 +693,7 @@ class PDFSummarizer:
             use_remote_embedding: If True, use remote embedding service
         """
         if use_remote_embedding:
-            # Use remote embedding service (SSP BGE-M3)
-            remote_model = "bge-m3:latest"  # model name for SSP API
+            remote_model = "qwen3-embedding:8b"
 
             print(f"🔧 Remote embedding with model: {remote_model} at SSP")
             
@@ -552,7 +887,7 @@ def main():
     summarizer = PDFSummarizer(llm_config=config)
     
     # our input file - make it relative to the script's directory
-    file_path = os.path.join(script_dir, "Aereo.pdf")
+    file_path = os.path.join(script_dir,"prototype_a", "Aereo.pdf")
 
     # result = summarizer.process_pdf(
     #     file_path,
