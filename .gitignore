@@ -6,7 +6,7 @@ wp12_hackathon/dissemination_summary_prototype/data/*
 *test.py
 *.sqlite3
 *.bin
-*.pdf
+*.pdff
 */connect_storage.py
 .vscode
 api_key.txt
