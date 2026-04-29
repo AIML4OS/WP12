@@ -30,7 +30,28 @@ selected_file_source_label = None
 selected_file_thumbnail = None
 pdf_upload_component = None
 summarize_actions_container = None
+summarize_button = None
+restart_button = None
+clear_selection_button = None
+summarizer_customize_button = None
+parameters_customize_button = None
+summarizer_config_summary_panel_ref = None
+summarizer_config_editor_panel_ref = None
+parameters_summary_panel_ref = None
+parameters_editor_panel_ref = None
 summary_text = ""
+
+file_card_container = None
+summarizer_config_card_container = None
+parameters_card_container = None
+
+UI_STATE = {
+    "processing": False,
+    "process_completed": False,
+    "summarizer_editor_open": False,
+    "parameters_editor_open": False,
+    "file_picker_open": True,
+}
 
 # Last successful run: download filename pattern + timing for status display.
 LAST_SUMMARY_META = {
@@ -118,8 +139,77 @@ def has_pdf_source_selected():
 def update_summarize_actions_visibility():
     if summarize_actions_container is None:
         return
-    summarize_actions_container.set_visibility(has_pdf_source_selected())
+    actions_visible = has_pdf_source_selected()
+    summarize_actions_container.set_visibility(actions_visible)
     summarize_actions_container.update()
+    if restart_button is not None:
+        restart_button.set_visibility(
+            has_pdf_source_selected()
+            and not UI_STATE.get("processing", False)
+            and UI_STATE.get("process_completed", False)
+        )
+        restart_button.update()
+
+    if summarize_button is not None:
+        can_run = (
+            actions_visible
+            and not UI_STATE.get("process_completed", False)
+            and not UI_STATE.get("summarizer_editor_open", False)
+            and not UI_STATE.get("parameters_editor_open", False)
+            and not UI_STATE.get("file_picker_open", False)
+        )
+        if UI_STATE.get("processing", False):
+            summarize_button.set_text("Please Wait")
+            summarize_button.props('icon=sym_o_progress_activity')
+            summarize_button.classes(add='processing-spinner-icon')
+            summarize_button.set_visibility(actions_visible)
+            disabler = getattr(summarize_button, "disable", None)
+            if callable(disabler):
+                disabler()
+        else:
+            summarize_button.set_text("Summarize")
+            summarize_button.props('icon=sym_o_search')
+            summarize_button.classes(remove='processing-spinner-icon')
+            enabler = getattr(summarize_button, "enable", None)
+            if callable(enabler):
+                enabler()
+            summarize_button.set_visibility(can_run)
+        summarize_button.update()
+
+
+def set_processing_ui_locked(locked: bool) -> None:
+    """Keep page visible; close editors and lock action controls while processing."""
+    UI_STATE["processing"] = locked
+
+    if locked:
+        if (
+            summarizer_config_editor_panel_ref is not None
+            and summarizer_config_summary_panel_ref is not None
+        ):
+            summarizer_config_editor_panel_ref.set_visibility(False)
+            summarizer_config_summary_panel_ref.set_visibility(True)
+            summarizer_config_editor_panel_ref.update()
+            summarizer_config_summary_panel_ref.update()
+            UI_STATE["summarizer_editor_open"] = False
+        if parameters_editor_panel_ref is not None and parameters_summary_panel_ref is not None:
+            parameters_editor_panel_ref.set_visibility(False)
+            parameters_summary_panel_ref.set_visibility(True)
+            parameters_editor_panel_ref.update()
+            parameters_summary_panel_ref.update()
+            UI_STATE["parameters_editor_open"] = False
+
+    controls_visible = not locked
+    if clear_selection_button is not None:
+        clear_selection_button.set_visibility(controls_visible)
+        clear_selection_button.update()
+    if summarizer_customize_button is not None:
+        summarizer_customize_button.set_visibility(controls_visible)
+        summarizer_customize_button.update()
+    if parameters_customize_button is not None:
+        parameters_customize_button.set_visibility(controls_visible)
+        parameters_customize_button.update()
+
+    update_summarize_actions_visibility()
 
 
 LLM_PROVIDER_LABEL = {
@@ -271,7 +361,11 @@ def build_pdf_thumbnail_data_uri(file_path=None, pdf_bytes=None):
         return None
 
 def show_file_selection():
-    if not (file_picker_container and selected_file_container and selected_file_name_label):
+    if (
+        file_picker_container is None
+        or selected_file_container is None
+        or selected_file_name_label is None
+    ):
         return
     name = selected_file_info.get('name', 'Unknown file')
     source = selected_file_info.get('source', '')
@@ -279,10 +373,10 @@ def show_file_selection():
     source_text = SOURCE_DISPLAY.get(source, source or '—')
 
     selected_file_name_label.set_text(name)
-    if selected_file_size_label:
+    if selected_file_size_label is not None:
         selected_file_size_label.set_text(size_text)
         selected_file_size_label.update()
-    if selected_file_source_label:
+    if selected_file_source_label is not None:
         selected_file_source_label.set_text(source_text)
         selected_file_source_label.update()
 
@@ -291,6 +385,7 @@ def show_file_selection():
     selected_file_container.set_visibility(True)
     file_picker_container.update()
     selected_file_container.update()
+    UI_STATE["file_picker_open"] = False
     update_summarize_actions_visibility()
 
 
@@ -300,14 +395,15 @@ def clear_selected_file():
     selected_file_info['name'] = None
     selected_file_info['size_bytes'] = None
     selected_file_info['source'] = None
-    if selected_file_thumbnail:
+    if selected_file_thumbnail is not None:
         selected_file_thumbnail.set_visibility(False)
         selected_file_thumbnail.update()
-    if file_picker_container and selected_file_container:
+    if file_picker_container is not None and selected_file_container is not None:
         selected_file_container.set_visibility(False)
         file_picker_container.set_visibility(True)
         selected_file_container.update()
         file_picker_container.update()
+    UI_STATE["file_picker_open"] = True
     if pdf_upload_component is not None:
         pdf_upload_component.reset()
         pdf_upload_component.update()
@@ -326,7 +422,7 @@ def handle_upload(e: UploadEventArguments):
     selected_file_info['source'] = 'Uploaded file'
     thumbnail = build_pdf_thumbnail_data_uri(pdf_bytes=e.content.read())
     e.content.seek(0)
-    if selected_file_thumbnail:
+    if selected_file_thumbnail is not None:
         if thumbnail:
             selected_file_thumbnail.set_source(thumbnail)
             selected_file_thumbnail.set_visibility(True)
@@ -356,7 +452,7 @@ def select_demo_pdf(file_name: str):
     selected_file_info['size_bytes'] = os.path.getsize(file_path) if os.path.exists(file_path) else None
     selected_file_info['source'] = 'Demo file'
     thumbnail = build_pdf_thumbnail_data_uri(file_path=file_path)
-    if selected_file_thumbnail:
+    if selected_file_thumbnail is not None:
         if thumbnail:
             selected_file_thumbnail.set_source(thumbnail)
             selected_file_thumbnail.set_visibility(True)
@@ -380,8 +476,11 @@ async def handle_summarize(
 ):
     global summary_label, keywords_label, tags_label, results_container, download_button, summary_text
 
-    status_label.set_text('⏳ Processing...')
-    status_label.update()
+    UI_STATE["process_completed"] = False
+    set_processing_ui_locked(True)
+    if status_label is not None:
+        status_label.set_text('⏳ Processing...')
+        status_label.update()
     if results_container and download_button:
         results_container.set_visibility(False)
         download_button.set_visibility(False)
@@ -401,13 +500,15 @@ async def handle_summarize(
             source_file_path = selected_demo_file.get('path')
             if not os.path.exists(source_file_path):
                 ui.notify('Please choose a demo PDF file first.', type='warning')
-                status_label.set_text('Ready.')
-                status_label.update()
+                if status_label is not None:
+                    status_label.set_text('Ready.')
+                    status_label.update()
                 return
         else:
             ui.notify('Please upload a PDF file or select one demo PDF first.', type='warning')
-            status_label.set_text('Ready.')
-            status_label.update()
+            if status_label is not None:
+                status_label.set_text('Ready.')
+                status_label.update()
             return
 
         use_vector = processing_mode_radio.value == 'vector'
@@ -415,8 +516,9 @@ async def handle_summarize(
         llm_model = llm_model_select.value
         if not llm_model:
             ui.notify('Choose an LLM model (refresh the list if empty).', type='warning')
-            status_label.set_text('Ready.')
-            status_label.update()
+            if status_label is not None:
+                status_label.set_text('Ready.')
+                status_label.update()
             return
 
         if provider_select.value == 'ollama' and not OLLAMA_PROBE_STATE.get('ok'):
@@ -425,8 +527,9 @@ async def handle_summarize(
                 'or pick another provider.',
                 type='warning',
             )
-            status_label.set_text('Ready.')
-            status_label.update()
+            if status_label is not None:
+                status_label.set_text('Ready.')
+                status_label.update()
             return
 
         out_lang = (out_lang_input.value or '').strip() or 'pt-pt'
@@ -474,14 +577,16 @@ async def handle_summarize(
             loader=str(loader_radio.value),
             llm_model=str(llm_model),
         )
-        status_label.set_text(format_done_status_line(elapsed_s, timing_sec))
+        if status_label is not None:
+            status_label.set_text(format_done_status_line(elapsed_s, timing_sec))
+            status_label.update()
         if results_container and download_button:
             results_container.set_visibility(True)
             download_button.set_visibility(True)
+        UI_STATE["process_completed"] = True
         summary_label.update()
         keywords_label.update()
         tags_label.update()
-        status_label.update()
         if results_container and download_button:
             results_container.update()
             download_button.update()
@@ -497,14 +602,18 @@ async def handle_summarize(
         summary_label.set_text(f"❌ Error: {error_msg}")
         keywords_label.set_text("Error")
         tags_label.set_text("Error")
-        status_label.set_text('❌ Failed')
         summary_label.update()
         keywords_label.update()
         tags_label.update()
-        status_label.update()
+        UI_STATE["process_completed"] = True
+        if status_label is not None:
+            status_label.set_text('❌ Failed')
+            status_label.update()
         ui.notify(f"Summarization error: {error_msg}", type='negative')
 
     finally:
+        # Always unlock the UI even if we return early due to validation.
+        set_processing_ui_locked(False)
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
@@ -513,7 +622,11 @@ def main_page():
     global summary_label, keywords_label, tags_label, results_container, download_button
     global file_picker_container, selected_file_container
     global selected_file_name_label, selected_file_size_label, selected_file_source_label, selected_file_thumbnail
-    global pdf_upload_component, summarize_actions_container
+    global pdf_upload_component, summarize_actions_container, summarize_button, restart_button
+    global clear_selection_button, summarizer_customize_button, parameters_customize_button
+    global summarizer_config_summary_panel_ref, summarizer_config_editor_panel_ref
+    global parameters_summary_panel_ref, parameters_editor_panel_ref
+    global file_card_container, summarizer_config_card_container, parameters_card_container
 
     ui.add_head_html(
         '''
@@ -562,6 +675,17 @@ def main_page():
     color: rgb(30 41 59);
     letter-spacing: -0.01em;
   }
+
+  /* Processing button spinner animation. */
+  .processing-spinner-icon .q-icon {
+    animation: spin 0.95s linear infinite;
+    transform-origin: center center;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
 </style>
         '''.strip()
     )
@@ -574,7 +698,7 @@ def main_page():
                 'text-3xl font-medium text-slate-900 tracking-tight'
             )
 
-        with ui.card().classes('w-full p-6 shadow-lg'):
+        with ui.card().classes('w-full p-6 shadow-lg') as file_card_container:
             with ui.column().classes('w-full gap-4') as file_picker_container:
                 with ui.row().classes('items-center gap-3 mb-4'):
                     ui.icon('sym_o_picture_as_pdf').classes(
@@ -650,7 +774,7 @@ def main_page():
                             selected_file_name_label = ui.label('—').classes(
                                 'flex-1 min-w-0 text-xl font-semibold text-gray-900 leading-snug break-words'
                             )
-                            ui.button(
+                            clear_selection_button = ui.button(
                                 'Clear selection',
                                 on_click=clear_selected_file,
                             ).props(
@@ -675,7 +799,7 @@ def main_page():
 
             selected_file_container.set_visibility(False)
 
-        with ui.card().classes('w-full p-6 shadow-lg'):
+        with ui.card().classes('w-full p-6 shadow-lg') as summarizer_config_card_container:
             with ui.row().classes('items-center gap-3 mb-4'):
                 ui.icon('sym_o_auto_awesome').classes(
                     'text-3xl text-primary shrink-0 opacity-90'
@@ -712,7 +836,7 @@ def main_page():
                             summarizer_summary_loader_label = ui.label('').classes(
                                 'text-sm text-slate-800 leading-snug break-words'
                             )
-                    ui.button(
+                    summarizer_customize_button = ui.button(
                         'Customize',
                         icon='sym_o_tune',
                         on_click=lambda: open_summarizer_editor(),
@@ -721,6 +845,8 @@ def main_page():
                     )
 
             summarizer_config_editor_panel = ui.column().classes('w-full gap-6')
+            summarizer_config_summary_panel_ref = summarizer_config_summary_panel
+            summarizer_config_editor_panel_ref = summarizer_config_editor_panel
             with summarizer_config_editor_panel:
                 ui.label(
                     'Choose the chat model, then PDF parsing and retrieval options below.'
@@ -1019,6 +1145,8 @@ def main_page():
                     summarizer_config_editor_panel.set_visibility(True)
                     summarizer_config_summary_panel.update()
                     summarizer_config_editor_panel.update()
+                    UI_STATE["summarizer_editor_open"] = True
+                    update_summarize_actions_visibility()
 
                 def close_summarizer_editor():
                     refresh_summarizer_summary()
@@ -1026,6 +1154,8 @@ def main_page():
                     summarizer_config_summary_panel.set_visibility(True)
                     summarizer_config_editor_panel.update()
                     summarizer_config_summary_panel.update()
+                    UI_STATE["summarizer_editor_open"] = False
+                    update_summarize_actions_visibility()
 
                 ui.separator().classes('w-full opacity-60')
                 ui.button(
@@ -1037,7 +1167,7 @@ def main_page():
             summarizer_config_editor_panel.set_visibility(False)
             refresh_summarizer_summary()
 
-        with ui.card().classes('w-full p-6 shadow-lg'):
+        with ui.card().classes('w-full p-6 shadow-lg') as parameters_card_container:
             with ui.row().classes('items-center gap-3 mb-4'):
                 ui.icon('sym_o_tune').classes(
                     'text-3xl text-primary shrink-0 opacity-90'
@@ -1079,7 +1209,7 @@ def main_page():
                                 parameters_pill_lang = ui.label('').classes(
                                     _pill_val + ' font-mono'
                                 )
-                    ui.button(
+                    parameters_customize_button = ui.button(
                         'Customize',
                         icon='sym_o_tune',
                         on_click=lambda: open_parameters_editor(),
@@ -1088,6 +1218,8 @@ def main_page():
                     )
 
             parameters_editor_panel = ui.column().classes('w-full gap-4')
+            parameters_summary_panel_ref = parameters_summary_panel
+            parameters_editor_panel_ref = parameters_editor_panel
             with parameters_editor_panel:
                 ui.label(
                     'Set limits for summary length, keyword/tag counts, and output language. '
@@ -1148,6 +1280,8 @@ def main_page():
                 parameters_editor_panel.set_visibility(True)
                 parameters_summary_panel.update()
                 parameters_editor_panel.update()
+                UI_STATE["parameters_editor_open"] = True
+                update_summarize_actions_visibility()
 
             def close_parameters_editor():
                 refresh_parameters_summary()
@@ -1155,6 +1289,8 @@ def main_page():
                 parameters_summary_panel.set_visibility(True)
                 parameters_editor_panel.update()
                 parameters_summary_panel.update()
+                UI_STATE["parameters_editor_open"] = False
+                update_summarize_actions_visibility()
 
             parameters_editor_panel.set_visibility(False)
             refresh_parameters_summary()
@@ -1168,7 +1304,57 @@ def main_page():
             status_label = ui.label('Ready.').classes(
                 'text-lg text-gray-600 whitespace-pre-line leading-snug'
             )
-            ui.button('🔍 Summarize', on_click=lambda: handle_summarize(
+
+            def restart_app_state():
+                UI_STATE["process_completed"] = False
+                UI_STATE["processing"] = False
+                UI_STATE["summarizer_editor_open"] = False
+                UI_STATE["parameters_editor_open"] = False
+
+                # Reset selection + results first.
+                clear_selected_file()
+                if results_container is not None:
+                    results_container.set_visibility(False)
+                    results_container.update()
+                if download_button is not None:
+                    download_button.set_visibility(False)
+                    download_button.update()
+                if summary_label is not None:
+                    summary_label.set_text('Summary will appear here.')
+                    summary_label.update()
+                if keywords_label is not None:
+                    keywords_label.set_text('Keywords will appear here.')
+                    keywords_label.update()
+                if tags_label is not None:
+                    tags_label.set_text('Tags will appear here.')
+                    tags_label.update()
+                status_label.set_text('Ready.')
+                status_label.update()
+
+                # Reset editors to "summary" mode.
+                summarizer_config_editor_panel.set_visibility(False)
+                summarizer_config_summary_panel.set_visibility(True)
+                summarizer_config_editor_panel.update()
+                summarizer_config_summary_panel.update()
+                refresh_summarizer_summary()
+
+                parameters_editor_panel.set_visibility(False)
+                parameters_summary_panel.set_visibility(True)
+                parameters_editor_panel.update()
+                parameters_summary_panel.update()
+                refresh_parameters_summary()
+
+                set_processing_ui_locked(False)
+                UI_STATE["file_picker_open"] = True
+                update_summarize_actions_visibility()
+
+            restart_button = ui.button(
+                '↩️ Restart',
+                on_click=restart_app_state,
+            ).props('outline').classes('w-full text-lg py-2 rounded')
+            restart_button.set_visibility(False)
+
+            summarize_button = ui.button('Summarize', on_click=lambda: handle_summarize(
                 max_words_input,
                 max_keywords_input,
                 max_tags_input,
@@ -1179,23 +1365,29 @@ def main_page():
                 provider_select,
                 llm_model_select,
                 status_label,
-            )).classes('w-full bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
+            )).props('icon=sym_o_search').classes('w-full bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
 
         update_summarize_actions_visibility()
 
         ui.separator().classes('w-full my-4')
 
         with ui.column().classes('w-full gap-4') as results_container:
-            with ui.card().classes('w-full p-6 bg-gray-50'):
-                ui.label('📄 Summary').classes('text-xl font-medium')
+            with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('sym_o_summarize').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.label('Summary').classes('text-xl font-medium')
                 summary_label = ui.label('Summary will appear here.').classes('w-full whitespace-pre-wrap')
 
-            with ui.card().classes('w-full p-6 bg-gray-50'):
-                ui.label('🔑 Keywords').classes('text-xl font-medium')
+            with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('sym_o_key').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.label('Keywords').classes('text-xl font-medium')
                 keywords_label = ui.label('Keywords will appear here.').classes('w-full')
 
-            with ui.card().classes('w-full p-6 bg-gray-50'):
-                ui.label('🏷️ Tags').classes('text-xl font-medium')
+            with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('sym_o_sell').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.label('Tags').classes('text-xl font-medium')
                 tags_label = ui.label('Tags will appear here.').classes('w-full')
 
         def download_summary_export():
