@@ -18,6 +18,7 @@ uploaded_file = {}
 selected_demo_file = {'path': None}
 selected_file_info = {'name': None, 'size_bytes': None, 'source': None}
 summary_label = None
+sources_label = None
 keywords_label = None
 tags_label = None
 results_container = None
@@ -40,6 +41,7 @@ summarizer_config_editor_panel_ref = None
 parameters_summary_panel_ref = None
 parameters_editor_panel_ref = None
 summary_text = ""
+sources_text = ""
 
 file_card_container = None
 summarizer_config_card_container = None
@@ -72,7 +74,7 @@ _TIMING_LABELS = {
 
 def format_done_status_line(total_s: float, timing_sec: dict | None) -> str:
     """Two-line status: total wall time (worker) + per-phase breakdown from summarizer."""
-    line1 = f"✅ Done · {total_s:.1f}s total"
+    line1 = f"Done · {total_s:.1f}s total"
     if not timing_sec:
         return line1
     parts = []
@@ -160,16 +162,16 @@ def update_summarize_actions_visibility():
         )
         if UI_STATE.get("processing", False):
             summarize_button.set_text("Please Wait")
-            summarize_button.props('icon=sym_o_progress_activity')
-            summarize_button.classes(add='processing-spinner-icon')
+            summarize_button.props('icon=sym_o_document_scanner')
+            summarize_button.classes(add='processing-spinner-matrix')
             summarize_button.set_visibility(actions_visible)
             disabler = getattr(summarize_button, "disable", None)
             if callable(disabler):
                 disabler()
         else:
             summarize_button.set_text("Summarize")
-            summarize_button.props('icon=sym_o_search')
-            summarize_button.classes(remove='processing-spinner-icon')
+            summarize_button.props('icon=sym_o_document_scanner')
+            summarize_button.classes(remove='processing-spinner-matrix')
             enabler = getattr(summarize_button, "enable", None)
             if callable(enabler):
                 enabler()
@@ -286,6 +288,7 @@ def cpu_bound_fetch_llm_models(prov: str, api_key, ollama_base_url: str):
 
 def run_summarization(
     file_path,
+    source_display_name,
     max_keywords,
     max_tags,
     max_words,
@@ -327,6 +330,7 @@ def run_summarization(
         max_tags=max_tags,
         max_words=max_words,
         out_lang=out_lang,
+        display_source_name=source_display_name,
     )
 
 def format_size(num_bytes):
@@ -474,12 +478,12 @@ async def handle_summarize(
     llm_model_select,
     status_label,
 ):
-    global summary_label, keywords_label, tags_label, results_container, download_button, summary_text
+    global summary_label, sources_label, keywords_label, tags_label, results_container, download_button, summary_text, sources_text
 
     UI_STATE["process_completed"] = False
     set_processing_ui_locked(True)
     if status_label is not None:
-        status_label.set_text('⏳ Processing...')
+        status_label.set_text('Processing...')
         status_label.update()
     if results_container and download_button:
         results_container.set_visibility(False)
@@ -540,6 +544,7 @@ async def handle_summarize(
         result = await run.cpu_bound(
             run_summarization,
             source_file_path,
+            selected_file_info.get('name') or '',
             int(max_keywords_input.value),
             int(max_tags_input.value),
             int(max_words_input.value),
@@ -556,6 +561,23 @@ async def handle_summarize(
         timing_sec = result.get("_timing_sec") if isinstance(result, dict) else None
         summary_text = result.get("summary", "No summary.") if isinstance(result, dict) else str(result)
         summary_label.set_text(summary_text)
+        sources = result.get("sources", []) if isinstance(result, dict) else []
+        if isinstance(sources, list) and sources:
+            rendered_sources = []
+            for idx, src in enumerate(sources, start=1):
+                if not isinstance(src, dict):
+                    continue
+                src_name = str(src.get("source", "document"))
+                src_loc = str(src.get("location", "n/a"))
+                src_excerpt = str(src.get("excerpt", "")).strip()
+                rendered_sources.append(
+                    f"{idx}. {src_name} ({src_loc})\n{src_excerpt}"
+                )
+            sources_text = "\n\n".join(rendered_sources) if rendered_sources else "No source attribution available."
+        else:
+            sources_text = "No source attribution available."
+        if sources_label is not None:
+            sources_label.set_text(sources_text)
         keywords = (result.get("keywords", []) if isinstance(result, dict) else [])[
             : int(max_keywords_input.value)
         ]
@@ -585,6 +607,8 @@ async def handle_summarize(
             download_button.set_visibility(True)
         UI_STATE["process_completed"] = True
         summary_label.update()
+        if sources_label is not None:
+            sources_label.update()
         keywords_label.update()
         tags_label.update()
         if results_container and download_button:
@@ -600,14 +624,18 @@ async def handle_summarize(
         elif "401" in error_msg and "OpenAI" in error_msg:
             error_msg = f"{error_msg} {auth_hint_openai}"
         summary_label.set_text(f"❌ Error: {error_msg}")
+        if sources_label is not None:
+            sources_label.set_text("Error")
         keywords_label.set_text("Error")
         tags_label.set_text("Error")
         summary_label.update()
+        if sources_label is not None:
+            sources_label.update()
         keywords_label.update()
         tags_label.update()
         UI_STATE["process_completed"] = True
         if status_label is not None:
-            status_label.set_text('❌ Failed')
+            status_label.set_text('Failed')
             status_label.update()
         ui.notify(f"Summarization error: {error_msg}", type='negative')
 
@@ -619,7 +647,7 @@ async def handle_summarize(
 
 @ui.page('/')
 def main_page():
-    global summary_label, keywords_label, tags_label, results_container, download_button
+    global summary_label, sources_label, keywords_label, tags_label, results_container, download_button
     global file_picker_container, selected_file_container
     global selected_file_name_label, selected_file_size_label, selected_file_source_label, selected_file_thumbnail
     global pdf_upload_component, summarize_actions_container, summarize_button, restart_button
@@ -676,14 +704,15 @@ def main_page():
     letter-spacing: -0.01em;
   }
 
-  /* Processing button spinner animation. */
-  .processing-spinner-icon .q-icon {
-    animation: spin 0.95s linear infinite;
+  /* Processing button: option 2 (white pulse scanner icon). */
+  .processing-spinner-matrix .q-icon {
+    color: rgba(255, 255, 255, 0.95);
+    animation: scanPulse 1.1s ease-in-out infinite;
     transform-origin: center center;
   }
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+  @keyframes scanPulse {
+    0%, 100% { transform: scale(0.92); opacity: 0.66; }
+    50% { transform: scale(1.06); opacity: 1; }
   }
 
 </style>
@@ -1007,7 +1036,7 @@ def main_page():
                                     'relevant passages, then summarize. Best for longer PDFs.'
                                 ),
                             },
-                            value='plain',
+                            value='vector',
                         ).props('vertical')
 
                     embedding_section = ui.column().classes(
@@ -1042,7 +1071,7 @@ def main_page():
                         embedding_section.set_visibility(processing_mode.value == 'vector')
                         embedding_section.update()
 
-                    embedding_section.set_visibility(False)
+                    embedding_section.set_visibility(True)
                     sync_embedding_visibility()
 
                 with ui.column().classes('w-full gap-2'):
@@ -1066,7 +1095,7 @@ def main_page():
                                     'RecursiveCharacterTextSplitter.'
                                 ),
                             },
-                            value='docling',
+                            value='pypdf',
                         ).props('vertical')
 
                 def refresh_summarizer_summary():
@@ -1322,6 +1351,9 @@ def main_page():
                 if summary_label is not None:
                     summary_label.set_text('Summary will appear here.')
                     summary_label.update()
+                if sources_label is not None:
+                    sources_label.set_text('Information sources will appear here.')
+                    sources_label.update()
                 if keywords_label is not None:
                     keywords_label.set_text('Keywords will appear here.')
                     keywords_label.update()
@@ -1349,9 +1381,9 @@ def main_page():
                 update_summarize_actions_visibility()
 
             restart_button = ui.button(
-                '↩️ Restart',
+                'Restart',
                 on_click=restart_app_state,
-            ).props('outline').classes('w-full text-lg py-2 rounded')
+            ).props('outline icon=sym_o_restart_alt').classes('w-full text-lg py-2 rounded')
             restart_button.set_visibility(False)
 
             summarize_button = ui.button('Summarize', on_click=lambda: handle_summarize(
@@ -1365,7 +1397,7 @@ def main_page():
                 provider_select,
                 llm_model_select,
                 status_label,
-            )).props('icon=sym_o_search').classes('w-full bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
+            )).props('icon=sym_o_document_scanner').classes('w-full bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
 
         update_summarize_actions_visibility()
 
@@ -1377,6 +1409,14 @@ def main_page():
                     ui.icon('sym_o_summarize').classes('text-2xl text-primary shrink-0 opacity-90')
                     ui.label('Summary').classes('text-xl font-medium')
                 summary_label = ui.label('Summary will appear here.').classes('w-full whitespace-pre-wrap')
+
+            with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('sym_o_format_quote').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.label('Information sources').classes('text-xl font-medium')
+                sources_label = ui.label('Information sources will appear here.').classes(
+                    'w-full whitespace-pre-wrap text-sm leading-relaxed'
+                )
 
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
                 with ui.row().classes('items-center gap-2'):
@@ -1395,6 +1435,9 @@ def main_page():
                 f"""📄 Summary:
         {summary_label.text}
 
+        📚 Information sources:
+        {sources_label.text}
+
         🔑 Keywords:
         {keywords_label.text}
 
@@ -1405,9 +1448,9 @@ def main_page():
             )
 
         download_button = ui.button(
-            '⬇️ Download Summary',
+            'Download Summary',
             on_click=download_summary_export,
-        ).props('color=primary').classes('w-full')
+        ).props('color=primary icon=sym_o_download').classes('w-full')
 
         results_container.set_visibility(False)
         download_button.set_visibility(False)

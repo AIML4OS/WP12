@@ -13,6 +13,7 @@ load_dotenv(os.path.join(script_dir, '.env'), override=True)
 
 import warnings
 import time
+import re
 from typing import List, Dict, Optional, Union, Any
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -87,12 +88,14 @@ def _attach_timing_breakdown(payload: Any, timing: Dict[str, float]) -> Any:
     """Merge per-phase timings into the result dict for the UI (values are seconds)."""
     if isinstance(payload, dict):
         merged = dict(payload)
+        merged.setdefault("sources", [])
         merged["_timing_sec"] = timing
         return merged
     return {
         "summary": str(payload),
         "keywords": [],
         "tags": [],
+        "sources": [],
         "_timing_sec": timing,
     }
 
@@ -455,8 +458,189 @@ class PDFSummarizer:
         return {
             "summary": content,
             "keywords": ["parsing_failed"],
-            "tags": ["raw_text"]
+            "tags": ["raw_text"],
+            "sources": [],
         }
+
+    def _build_sources_from_docs(
+        self,
+        docs: Any,
+        *,
+        display_source_name: Optional[str] = None,
+        pdf_path: Optional[str] = None,
+        max_sources: int = 6,
+        max_excerpt_chars: int = 280,
+    ) -> List[Dict[str, str]]:
+        """Build compact source-attribution entries from retrieved chunks."""
+        if not isinstance(docs, list):
+            return []
+        sources: List[Dict[str, str]] = []
+        seen = set()
+        page_texts_norm: Optional[List[str]] = None
+        for doc in docs:
+            page_content = getattr(doc, "page_content", "") if doc is not None else ""
+            meta = getattr(doc, "metadata", {}) if doc is not None else {}
+            if not isinstance(meta, dict):
+                meta = {}
+
+            page_label = self._extract_page_label(meta)
+            source_name = self._extract_source_name(meta, display_source_name)
+
+            excerpt = " ".join(str(page_content).split())
+            if len(excerpt) > max_excerpt_chars:
+                excerpt = excerpt[: max_excerpt_chars - 1].rstrip() + "…"
+            excerpt = excerpt or "(empty excerpt)"
+
+            if page_label == "page n/a" and pdf_path and excerpt != "(empty excerpt)":
+                if page_texts_norm is None:
+                    page_texts_norm = self._load_pdf_page_texts_norm(pdf_path)
+                inferred_page = self._infer_page_from_excerpt(excerpt, page_texts_norm)
+                if inferred_page is not None:
+                    page_label = f"p.{inferred_page}"
+
+            dedupe_key = (source_name, page_label, excerpt[:160])
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            i = len(sources) + 1
+            sources.append(
+                {
+                    "id": str(i),
+                    "source": source_name,
+                    "location": page_label,
+                    "excerpt": excerpt,
+                }
+            )
+            if len(sources) >= max_sources:
+                break
+        return sources
+
+    def _normalize_for_match(self, text: str) -> str:
+        text = str(text).lower()
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"[^a-z0-9à-ÿ ]+", "", text)
+        return text.strip()
+
+    def _load_pdf_page_texts_norm(self, pdf_path: str) -> List[str]:
+        """Load page texts (normalized) to support fallback page inference."""
+        try:
+            pages = PyPDFLoader(pdf_path).load()
+        except Exception:
+            return []
+        out: List[str] = []
+        for page in pages:
+            out.append(self._normalize_for_match(getattr(page, "page_content", "")))
+        return out
+
+    def _infer_page_from_excerpt(self, excerpt: str, page_texts_norm: List[str]) -> Optional[int]:
+        """Infer 1-based page index by matching a normalized excerpt against page text."""
+        if not page_texts_norm:
+            return None
+        ex = self._normalize_for_match(excerpt)
+        if not ex:
+            return None
+        probe = ex[:150] if len(ex) > 150 else ex
+        if len(probe) < 24:
+            return None
+        for i, page_txt in enumerate(page_texts_norm, start=1):
+            if probe in page_txt:
+                return i
+        return None
+
+    def _extract_page_label(self, metadata: Dict[str, Any]) -> str:
+        """Extract a human-readable page from heterogeneous metadata schemas."""
+        def _extract_int(value: Any) -> Optional[int]:
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(value)
+            if isinstance(value, str):
+                m = re.search(r"\d+", value)
+                if m:
+                    return int(m.group(0))
+            return None
+
+        # Common flat keys first.
+        flat_keys = ("page", "page_number", "page_num", "page_no", "pagenum", "page_idx")
+        for key in flat_keys:
+            if key in metadata:
+                val = _extract_int(metadata.get(key))
+                if val is not None:
+                    # Most loaders are 0-based for page; convert to 1-based.
+                    return f"p.{val + 1}" if key in ("page", "page_idx") else f"p.{val}"
+
+        # Deep recursive scan (e.g., Docling-style nested metadata/provenance).
+        def _scan(node: Any) -> Optional[int]:
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    lk = str(k).lower()
+                    if "page" in lk:
+                        out = _extract_int(v)
+                        if out is not None:
+                            return out
+                    nested = _scan(v)
+                    if nested is not None:
+                        return nested
+            elif isinstance(node, list):
+                for item in node:
+                    nested = _scan(item)
+                    if nested is not None:
+                        return nested
+            return None
+
+        deep_page = _scan(metadata)
+        if deep_page is not None:
+            # Deep scans are usually 1-based.
+            return f"p.{deep_page}"
+        return "page n/a"
+
+    def _extract_source_name(
+        self,
+        metadata: Dict[str, Any],
+        display_source_name: Optional[str] = None,
+    ) -> str:
+        """Resolve a stable source name and hide temp upload filenames."""
+        if display_source_name and str(display_source_name).strip():
+            return os.path.basename(str(display_source_name).strip())
+
+        source_name = (
+            metadata.get("source")
+            or metadata.get("file_path")
+            or metadata.get("filename")
+            or "document"
+        )
+        source_name = os.path.basename(str(source_name))
+
+        # Hide transient temp files if we can.
+        if re.match(r"^tmp[a-z0-9_-]+\.pdf$", source_name.lower()):
+            return "uploaded_file.pdf"
+        return source_name
+
+    def _build_source_from_full_text(
+        self,
+        pdf_path: str,
+        content: str,
+        display_source_name: Optional[str] = None,
+    ) -> List[Dict[str, str]]:
+        """Provide a coarse source reference when retrieval mode is not used."""
+        excerpt = " ".join(str(content).split())
+        if len(excerpt) > 360:
+            excerpt = excerpt[:359].rstrip() + "…"
+        return [
+            {
+                "id": "1",
+                "source": (
+                    os.path.basename(str(display_source_name))
+                    if display_source_name
+                    else (os.path.basename(pdf_path) or "document")
+                ),
+                "location": "full document",
+                "excerpt": excerpt or "(content unavailable)",
+            }
+        ]
 
     def _create_llm(self, provider: str, **kwargs) -> BaseChatModel:
         """
@@ -512,7 +696,7 @@ class PDFSummarizer:
         raise exc
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}")
-    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200):
+    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None):
         """
         Process a PDF file and return a summary.
         """
@@ -557,6 +741,12 @@ class PDFSummarizer:
                 # Some wrappers may rethrow auth as generic exceptions.
                 self._raise_with_auth_guidance(exc)
             out = result.get("answer", result)
+            if isinstance(out, dict):
+                out["sources"] = self._build_sources_from_docs(
+                    result.get("context"),
+                    display_source_name=display_source_name,
+                    pdf_path=pdf_path,
+                )
             return _attach_timing_breakdown(out, timing)
 
         else:
@@ -590,6 +780,12 @@ class PDFSummarizer:
                 # Some wrappers may rethrow auth as generic exceptions.
                 self._raise_with_auth_guidance(exc)
 
+            if isinstance(result, dict):
+                result["sources"] = self._build_source_from_full_text(
+                    pdf_path,
+                    pdf_text,
+                    display_source_name=display_source_name,
+                )
             return _attach_timing_breakdown(result, timing)
 
 
@@ -716,10 +912,11 @@ class PDFSummarizer:
                 encode_kwargs={"normalize_embeddings": True}  # recommended for BGE
             )
 
+        # Use an isolated in-memory collection per run to avoid cross-document pollution.
         vector_store = Chroma.from_documents(
-            persist_directory="chroma_db",
+            collection_name=f"run_{time.time_ns()}",
             documents=splits,
-            embedding=embedding
+            embedding=embedding,
         )
         return vector_store
 
@@ -742,13 +939,19 @@ class PDFSummarizer:
         
         # Split the pages into better chunks and create Document objects
         splits = []
-        for page in pages:
+        for page_idx, page in enumerate(pages):
             page_splits = text_splitter.split_text(page.page_content)
             for split in page_splits:
                 # Create Document objects with metadata
+                metadata = dict(page.metadata) if isinstance(page.metadata, dict) else {}
+                raw_page = metadata.get("page")
+                if isinstance(raw_page, int):
+                    metadata["page_number"] = raw_page + 1
+                else:
+                    metadata["page_number"] = page_idx + 1
                 doc = Document(
                     page_content=split,
-                    metadata=page.metadata
+                    metadata=metadata
                 )
                 splits.append(doc)
         
