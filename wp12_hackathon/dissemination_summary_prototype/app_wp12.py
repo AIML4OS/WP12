@@ -11,6 +11,7 @@ from summarizer_unified import (
     DEFAULT_LLM_MODELS_FALLBACK,
     fetch_llm_models_for_provider,
     probe_ollama_runtime,
+    probe_specific_ollama_runtime,
 )
 from nicegui.events import UploadEventArguments
 
@@ -217,6 +218,7 @@ def set_processing_ui_locked(locked: bool) -> None:
 LLM_PROVIDER_LABEL = {
     "ssp": "Remote Ollama (SSPCloud)",
     "ollama": "Local Ollama",
+    "ollama_ine": "Remote Ollama (Statistics Portugal)",
     "openai": "Remote OpenAI",
 }
 
@@ -224,6 +226,12 @@ LLM_PROVIDER_LABEL = {
 OLLAMA_PROBE_STATE: dict = {
     "ok": False,
     "base_url": None,
+    "models": [],
+    "error": None,
+}
+OLLAMA_INE_PROBE_STATE: dict = {
+    "ok": False,
+    "base_url": "https://ollama.ine.pt",
     "models": [],
     "error": None,
 }
@@ -236,22 +244,27 @@ PROVIDER_SELECT_OPTIONS_NO_OLLAMA = {
 PROVIDER_SELECT_OPTIONS_WITH_OLLAMA = {
     **PROVIDER_SELECT_OPTIONS_NO_OLLAMA,
     "ollama": "Local Ollama",
+    "ollama_ine": "Remote Ollama (Statistics Portugal)",
 }
 
 
-def apply_provider_select_options(select_el, *, include_ollama: bool) -> None:
+def apply_provider_select_options(
+    select_el, *, include_local_ollama: bool, include_ine_ollama: bool
+) -> None:
     """
     Refresh provider dropdown options so 'Local Ollama' appears after a successful probe.
 
     Prefer ChoiceElement.set_options() so value indices stay aligned with the client (#1073).
     """
     opts = dict(
-        PROVIDER_SELECT_OPTIONS_WITH_OLLAMA
-        if include_ollama
-        else PROVIDER_SELECT_OPTIONS_NO_OLLAMA
+        PROVIDER_SELECT_OPTIONS_NO_OLLAMA
     )
+    if include_local_ollama:
+        opts["ollama"] = PROVIDER_SELECT_OPTIONS_WITH_OLLAMA["ollama"]
+    if include_ine_ollama:
+        opts["ollama_ine"] = PROVIDER_SELECT_OPTIONS_WITH_OLLAMA["ollama_ine"]
     prev = select_el.value
-    if not include_ollama and prev == 'ollama':
+    if prev in ("ollama", "ollama_ine") and prev not in opts:
         prev = 'ssp'
     setter = getattr(select_el, "set_options", None)
     if callable(setter):
@@ -270,11 +283,23 @@ def current_ollama_base_url() -> str:
     return (os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
 
 
+def current_ollama_ine_base_url() -> str:
+    bu = (OLLAMA_INE_PROBE_STATE.get("base_url") or "").strip()
+    if bu:
+        return bu
+    return "https://ollama.ine.pt"
+
+
 def cpu_bound_probe_ollama(preferred_base_url):
     """
     Top-level wrapper for NiceGUI ``run.cpu_bound`` (nested closures are not picklable).
     """
     return probe_ollama_runtime(preferred_base_url)
+
+
+def cpu_bound_probe_ollama_ine(base_url):
+    """Top-level wrapper for NiceGUI ``run.cpu_bound``."""
+    return probe_specific_ollama_runtime(base_url)
 
 
 def cpu_bound_fetch_llm_models(prov: str, api_key, ollama_base_url: str):
@@ -314,6 +339,11 @@ def run_summarization(
             "OLLAMA_BASE_URL", "http://localhost:11434"
         )
         lc["base_url"] = base
+    elif lp == "ollama_ine":
+        lc["model"] = llm_model
+        base = (ollama_base_url or "").strip() or "https://ollama.ine.pt"
+        lc["base_url"] = base
+        lp = "ollama"
     else:
         lc["api_key"] = os.getenv("SSP_KEY")
         lc["model"] = llm_model
@@ -536,6 +566,17 @@ async def handle_summarize(
                 status_label.update()
             return
 
+        if provider_select.value == 'ollama_ine' and not OLLAMA_INE_PROBE_STATE.get('ok'):
+            ui.notify(
+                'Remote Statistics Portugal Ollama is not available from this network. '
+                'Connect to the corporate network or pick another provider.',
+                type='warning',
+            )
+            if status_label is not None:
+                status_label.set_text('Ready.')
+                status_label.update()
+            return
+
         out_lang = (out_lang_input.value or '').strip() or 'pt-pt'
         proc_mode = processing_mode_radio.value
         embed_choice = embedding_radio.value if use_vector else None
@@ -554,7 +595,15 @@ async def handle_summarize(
             use_remote,
             provider_select.value,
             llm_model,
-            current_ollama_base_url() if provider_select.value == 'ollama' else '',
+            (
+                current_ollama_base_url()
+                if provider_select.value == 'ollama'
+                else (
+                    current_ollama_ine_base_url()
+                    if provider_select.value == 'ollama_ine'
+                    else ''
+                )
+            ),
         )
         elapsed_s = time.perf_counter() - t0
 
@@ -890,8 +939,7 @@ def main_page():
                         'border-slate-100 gap-3'
                     ):
                         ui.label(
-                            'Remote SSP and OpenAI are always listed. Local Ollama is added only '
-                            'when available.'
+                            'SSP/OpenAI plus available Ollama runtimes (local and Statistics Portugal remote).'
                         ).classes('text-xs text-slate-500 leading-snug')
 
                         provider_select = ui.select(
@@ -901,7 +949,10 @@ def main_page():
                         ).classes('w-full')
 
                         ollama_status_label = ui.label(
-                            'Checking whether local Ollama is running…'
+                            'Checking local Ollama availability…'
+                        ).classes('text-xs text-slate-600 leading-snug')
+                        ollama_ine_status_label = ui.label(
+                            'Checking Statistics Portugal remote Ollama availability…'
                         ).classes('text-xs text-slate-600 leading-snug')
 
                         _fb_ssp = DEFAULT_LLM_MODELS_FALLBACK['ssp']
@@ -911,11 +962,36 @@ def main_page():
                             label='Model',
                         ).classes('w-full')
 
-                        async def refresh_llm_models_clicked():
-                            prov = provider_select.value
-                            base_url = (
-                                current_ollama_base_url() if prov == 'ollama' else ''
+                        provider_models_cache = {
+                            'ssp': list(_fb_ssp),
+                            'openai': list(DEFAULT_LLM_MODELS_FALLBACK['openai']),
+                            'ollama': list(DEFAULT_LLM_MODELS_FALLBACK['ollama']),
+                            'ollama_ine': list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine']),
+                        }
+
+                        def _current_ollama_base_for_provider(prov: str) -> str:
+                            if prov == 'ollama':
+                                return current_ollama_base_url()
+                            if prov == 'ollama_ine':
+                                return current_ollama_ine_base_url()
+                            return ''
+
+                        def _sync_provider_options_and_model_choice():
+                            apply_provider_select_options(
+                                provider_select,
+                                include_local_ollama=bool(OLLAMA_PROBE_STATE.get('ok')),
+                                include_ine_ollama=bool(OLLAMA_INE_PROBE_STATE.get('ok')),
                             )
+                            pv = provider_select.value
+                            models = provider_models_cache.get(pv) or DEFAULT_LLM_MODELS_FALLBACK.get(
+                                pv, DEFAULT_LLM_MODELS_FALLBACK['ssp']
+                            )
+                            llm_model_select.options = models
+                            llm_model_select.value = models[0] if models else None
+                            llm_model_select.update()
+
+                        async def refresh_llm_models_for_provider(prov: str, *, notify: bool = True):
+                            base_url = _current_ollama_base_for_provider(prov)
 
                             ak = None
                             if prov == 'openai':
@@ -934,20 +1010,29 @@ def main_page():
                                     models = DEFAULT_LLM_MODELS_FALLBACK.get(
                                         prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']
                                     )
-                                llm_model_select.options = models
-                                llm_model_select.value = models[0]
-                                llm_model_select.update()
-                                ui.notify(f'Loaded {len(models)} models.', type='positive')
+                                provider_models_cache[prov] = list(models)
+                                if provider_select.value == prov:
+                                    llm_model_select.options = models
+                                    llm_model_select.value = models[0]
+                                    llm_model_select.update()
+                                if notify:
+                                    ui.notify(f'Loaded {len(models)} models for {LLM_PROVIDER_LABEL.get(prov, prov)}.', type='positive')
                             except Exception as e:
-                                ui.notify(str(e), type='negative')
                                 fb = DEFAULT_LLM_MODELS_FALLBACK.get(
                                     prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']
                                 )
-                                llm_model_select.options = fb
-                                llm_model_select.value = fb[0]
-                                llm_model_select.update()
+                                provider_models_cache[prov] = list(fb)
+                                if provider_select.value == prov:
+                                    llm_model_select.options = fb
+                                    llm_model_select.value = fb[0]
+                                    llm_model_select.update()
+                                if notify:
+                                    ui.notify(str(e), type='negative')
 
-                        async def run_ollama_probe_ui(user_hint=None):
+                        async def refresh_llm_models_clicked():
+                            await refresh_llm_models_for_provider(provider_select.value, notify=True)
+
+                        async def run_ollama_probe_ui(user_hint=None, *, notify: bool = True):
                             ollama_status_label.set_text('Checking local Ollama…')
                             ollama_status_label.classes('text-xs text-slate-600 leading-snug')
 
@@ -967,29 +1052,89 @@ def main_page():
                             OLLAMA_PROBE_STATE.update(result)
 
                             if result['ok']:
-                                apply_provider_select_options(provider_select, include_ollama=True)
                                 models = result.get('models') or []
                                 n = len(models)
                                 ollama_status_label.set_text(
                                     f'Ollama is running at {result["base_url"]} — {n} model(s) listed.'
                                 )
                                 ollama_status_label.classes('text-xs text-emerald-800 leading-snug')
-                                if provider_select.value == 'ollama' and models:
-                                    llm_model_select.options = models
-                                    llm_model_select.value = models[0]
-                                    llm_model_select.update()
-                                ui.notify(f'Local Ollama OK ({n} models).', type='positive')
+                                if models:
+                                    provider_models_cache['ollama'] = list(models)
+                                if notify:
+                                    ui.notify(f'Local Ollama OK ({n} models).', type='positive')
                             else:
-                                apply_provider_select_options(provider_select, include_ollama=False)
                                 msg = result.get('error') or 'Ollama not available.'
                                 ollama_status_label.set_text(msg)
                                 ollama_status_label.classes('text-xs text-red-700 leading-snug')
-                                ui.notify(
-                                    'Local Ollama is not running or not reachable; option disabled.',
-                                    type='warning',
+                                provider_models_cache['ollama'] = list(
+                                    DEFAULT_LLM_MODELS_FALLBACK['ollama']
                                 )
+                                if notify:
+                                    ui.notify(
+                                        'Local Ollama is not running or not reachable; option disabled.',
+                                        type='warning',
+                                    )
 
+                            _sync_provider_options_and_model_choice()
                             ollama_status_label.update()
+                            refresh_summarizer_summary()
+
+                        async def run_ollama_ine_probe_ui(*, notify: bool = True):
+                            ollama_ine_status_label.set_text('Checking Statistics Portugal remote Ollama…')
+                            ollama_ine_status_label.classes('text-xs text-slate-600 leading-snug')
+                            try:
+                                result = await run.cpu_bound(
+                                    cpu_bound_probe_ollama_ine, 'https://ollama.ine.pt'
+                                )
+                            except Exception as ex:
+                                result = {
+                                    'ok': False,
+                                    'base_url': 'https://ollama.ine.pt',
+                                    'models': [],
+                                    'error': str(ex),
+                                }
+
+                            OLLAMA_INE_PROBE_STATE.clear()
+                            OLLAMA_INE_PROBE_STATE.update(result)
+
+                            if result['ok']:
+                                models = result.get('models') or []
+                                n = len(models)
+                                ollama_ine_status_label.set_text(
+                                    f'Statistics Portugal Ollama is reachable at {result.get("base_url") or "https://ollama.ine.pt"} — {n} model(s) listed.'
+                                )
+                                ollama_ine_status_label.classes('text-xs text-emerald-800 leading-snug')
+                                if models:
+                                    provider_models_cache['ollama_ine'] = list(models)
+                                if notify:
+                                    ui.notify(f'Statistics Portugal remote Ollama OK ({n} models).', type='positive')
+                            else:
+                                msg = result.get('error') or 'Statistics Portugal remote Ollama not available.'
+                                ollama_ine_status_label.set_text(msg)
+                                ollama_ine_status_label.classes('text-xs text-red-700 leading-snug')
+                                provider_models_cache['ollama_ine'] = list(
+                                    DEFAULT_LLM_MODELS_FALLBACK['ollama_ine']
+                                )
+                                if notify:
+                                    ui.notify(
+                                        'Statistics Portugal remote Ollama not reachable from this network; option disabled.',
+                                        type='warning',
+                                    )
+
+                            _sync_provider_options_and_model_choice()
+                            ollama_ine_status_label.update()
+                            refresh_summarizer_summary()
+
+                        async def refresh_all_llm_availability_and_models():
+                            await run_ollama_probe_ui(notify=False)
+                            await run_ollama_ine_probe_ui(notify=False)
+                            await refresh_llm_models_for_provider('ssp', notify=False)
+                            await refresh_llm_models_for_provider('openai', notify=False)
+                            if OLLAMA_PROBE_STATE.get('ok'):
+                                await refresh_llm_models_for_provider('ollama', notify=False)
+                            if OLLAMA_INE_PROBE_STATE.get('ok'):
+                                await refresh_llm_models_for_provider('ollama_ine', notify=False)
+                            _sync_provider_options_and_model_choice()
                             refresh_summarizer_summary()
 
                         with ui.row().classes('w-full gap-2 flex-wrap items-center'):
@@ -999,18 +1144,23 @@ def main_page():
                                 on_click=lambda: asyncio.create_task(run_ollama_probe_ui()),
                             ).props('outline dense no-caps color=primary').classes('shadow-sm')
                             ui.button(
+                                'Check Statistics Portugal Ollama',
+                                icon='sym_o_network_ping',
+                                on_click=lambda: asyncio.create_task(run_ollama_ine_probe_ui()),
+                            ).props('outline dense no-caps color=primary').classes('shadow-sm')
+                            ui.button(
                                 'Refresh models',
                                 icon='sym_o_refresh',
                                 on_click=refresh_llm_models_clicked,
                             ).props('outline dense no-caps color=primary').classes('shadow-sm')
                             ui.label(
-                                '“Check” probes /api/version and /api/tags and discovers the base URL. '
-                                '“Refresh models” uses the current provider (SSP / OpenAI / Ollama).'
+                                '“Check” probes /api/version and /api/tags. “Refresh models” '
+                                'uses the currently selected provider.'
                             ).classes('text-xs text-slate-500 flex-1 min-w-[12rem]')
 
                         ui.timer(
                             0.35,
-                            lambda: asyncio.create_task(run_ollama_probe_ui()),
+                            lambda: asyncio.create_task(refresh_all_llm_availability_and_models()),
                             once=True,
                             immediate=False,
                         )
@@ -1146,8 +1296,22 @@ def main_page():
                         llm_model_select.value = models[0]
                         llm_model_select.update()
                         return
+                    if prov == 'ollama_ine' and OLLAMA_INE_PROBE_STATE.get('ok'):
+                        models = OLLAMA_INE_PROBE_STATE.get('models') or []
+                        if not models:
+                            models = list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
+                        llm_model_select.options = models
+                        llm_model_select.value = models[0]
+                        llm_model_select.update()
+                        return
                     if prov == 'ollama':
                         fb = list(DEFAULT_LLM_MODELS_FALLBACK['ollama'])
+                        llm_model_select.options = fb
+                        llm_model_select.value = fb[0]
+                        llm_model_select.update()
+                        return
+                    if prov == 'ollama_ine':
+                        fb = list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
                         llm_model_select.options = fb
                         llm_model_select.value = fb[0]
                         llm_model_select.update()

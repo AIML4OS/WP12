@@ -112,6 +112,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LLM_MODELS_FALLBACK: Dict[str, List[str]] = {
     "ssp": ["qwen3-6-35b-moe"],
     "ollama": ["llama3.1:8b"],
+    "ollama_ine": ["llama3.1:8b"],
     "openai": ["gpt-4o-mini", "gpt-4o"],
 }
 
@@ -128,6 +129,39 @@ def _ollama_http_get(url: str, timeout: float) -> requests.Response:
         session.trust_env = False
         return session.get(url, timeout=timeout)
     return requests.get(url, timeout=timeout)
+
+
+def _format_ollama_probe_error(
+    exc: Exception,
+    *,
+    base_url: str,
+    is_remote_corporate: bool = False,
+) -> str:
+    """Build concise, user-facing diagnostics for Ollama probe failures."""
+    msg = str(exc)
+    low = msg.lower()
+
+    if "failed to resolve" in low or "name resolution" in low or "nodename nor servname" in low:
+        if is_remote_corporate:
+            return (
+                f"Cannot resolve {base_url}. This endpoint is only reachable on the corporate "
+                "network (VPN/LAN)."
+            )
+        return (
+            f"Cannot resolve {base_url}. Check host/DNS configuration and confirm Ollama "
+            "is reachable on this machine."
+        )
+
+    if "connection refused" in low:
+        return f"Connection refused by {base_url}. Check whether the Ollama service is running."
+
+    if "read timed out" in low or "connect timeout" in low:
+        return f"Timed out while contacting {base_url}. Check network connectivity and try again."
+
+    if "ssl" in low or "certificate" in low:
+        return f"TLS/SSL error while contacting {base_url}. Check certificates and endpoint URL."
+
+    return f"Could not reach {base_url} ({exc.__class__.__name__})."
 
 
 def _ollama_chat_model_names_from_tags_body(body: Any) -> List[str]:
@@ -197,7 +231,7 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
                 }
             tags_note = f"/api/tags HTTP {rt.status_code}"
         except requests.exceptions.RequestException as e:
-            tags_note = f"/api/tags: {e}"
+            tags_note = f"/api/tags: {_format_ollama_probe_error(e, base_url=base)}"
         except Exception as e:
             tags_note = f"/api/tags: {e}"
 
@@ -214,7 +248,7 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
                     }
             ver_note = f"/api/version HTTP {rv.status_code}"
         except requests.exceptions.RequestException as e:
-            ver_note = f"/api/version: {e}"
+            ver_note = f"/api/version: {_format_ollama_probe_error(e, base_url=base)}"
         except Exception as e:
             ver_note = f"/api/version: {e}"
 
@@ -226,6 +260,85 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
         "models": [],
         "error": last_err
         or "Ollama not reachable — install from https://ollama.com and run `ollama serve` (or ensure it is running).",
+    }
+
+
+def probe_specific_ollama_runtime(base_url: str) -> Dict[str, Any]:
+    """
+    Probe exactly one Ollama endpoint (no localhost fallback discovery).
+    Useful for fixed remote instances, such as corporate endpoints.
+    """
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return {
+            "ok": False,
+            "base_url": None,
+            "models": [],
+            "error": "Missing Ollama base URL.",
+        }
+
+    tags_note = ""
+    tags_user_error = ""
+    try:
+        rt = _ollama_http_get(f"{base}/api/tags", timeout=25)
+        if rt.status_code == 200:
+            body = rt.json()
+            models = _ollama_chat_model_names_from_tags_body(body)
+            return {
+                "ok": True,
+                "base_url": base,
+                "models": models,
+                "error": None,
+            }
+        tags_note = f"/api/tags HTTP {rt.status_code}"
+    except requests.exceptions.RequestException as e:
+        tags_user_error = _format_ollama_probe_error(
+            e, base_url=base, is_remote_corporate=True
+        )
+        tags_note = (
+            "/api/tags: "
+            + tags_user_error
+        )
+    except Exception as e:
+        tags_note = f"/api/tags: {e}"
+
+    ver_user_error = ""
+    try:
+        rv = _ollama_http_get(f"{base}/api/version", timeout=8)
+        if rv.status_code == 200:
+            data = rv.json()
+            if isinstance(data, dict) and data.get("version"):
+                return {
+                    "ok": True,
+                    "base_url": base,
+                    "models": [],
+                    "error": None,
+                }
+        ver_note = f"/api/version HTTP {rv.status_code}"
+    except requests.exceptions.RequestException as e:
+        ver_user_error = _format_ollama_probe_error(
+            e, base_url=base, is_remote_corporate=True
+        )
+        ver_note = (
+            "/api/version: "
+            + ver_user_error
+        )
+    except Exception as e:
+        ver_note = f"/api/version: {e}"
+
+    if tags_user_error and ver_user_error and tags_user_error == ver_user_error:
+        return {
+            "ok": False,
+            "base_url": None,
+            "models": [],
+            "error": tags_user_error,
+        }
+
+    return {
+        "ok": False,
+        "base_url": None,
+        "models": [],
+        "error": f"{base}: {tags_note}; {ver_note}",
     }
 
 
@@ -270,6 +383,14 @@ def fetch_llm_models_for_provider(
             raise RuntimeError(pr["error"] or "Ollama unreachable")
         out = pr["models"]
         return out if out else list(DEFAULT_LLM_MODELS_FALLBACK["ollama"])
+
+    if p == "ollama_ine":
+        hint = (ollama_base_url or "").strip() or "https://ollama.ine.pt"
+        pr = probe_specific_ollama_runtime(hint)
+        if not pr["ok"]:
+            raise RuntimeError(pr["error"] or "Remote INE Ollama unreachable")
+        out = pr["models"]
+        return out if out else list(DEFAULT_LLM_MODELS_FALLBACK["ollama_ine"])
 
     if p == "openai":
         key = api_key or os.getenv("OPENAI_API_KEY")
