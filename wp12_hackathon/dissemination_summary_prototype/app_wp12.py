@@ -132,6 +132,7 @@ SOURCE_DISPLAY = {
     'Demo file': 'Example PDF',
 }
 
+
 def has_pdf_source_selected():
     if uploaded_file.get('file') is not None:
         return True
@@ -363,6 +364,7 @@ def run_summarization(
         display_source_name=source_display_name,
     )
 
+
 def format_size(num_bytes):
     if num_bytes is None:
         return "Unknown size"
@@ -375,6 +377,7 @@ def format_size(num_bytes):
             return f"{size:.1f} {unit}"
         size /= 1024
     return f"{num_bytes} B"
+
 
 def build_pdf_thumbnail_data_uri(file_path=None, pdf_bytes=None):
     try:
@@ -393,6 +396,7 @@ def build_pdf_thumbnail_data_uri(file_path=None, pdf_bytes=None):
         return f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}"
     except Exception:
         return None
+
 
 def show_file_selection():
     if (
@@ -466,6 +470,7 @@ def handle_upload(e: UploadEventArguments):
     show_file_selection()
     ui.notify(f'✅ Uploaded: {e.name}', type='positive')
 
+
 def list_demo_pdfs():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     demo_docs_dir = os.path.join(base_dir, 'demo_docs')
@@ -477,13 +482,15 @@ def list_demo_pdfs():
     ]
     return sorted(pdfs)
 
+
 def select_demo_pdf(file_name: str):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, 'demo_docs', file_name)
     selected_demo_file['path'] = file_path
     uploaded_file['file'] = None
     selected_file_info['name'] = file_name
-    selected_file_info['size_bytes'] = os.path.getsize(file_path) if os.path.exists(file_path) else None
+    selected_file_info['size_bytes'] = os.path.getsize(
+        file_path) if os.path.exists(file_path) else None
     selected_file_info['source'] = 'Demo file'
     thumbnail = build_pdf_thumbnail_data_uri(file_path=file_path)
     if selected_file_thumbnail is not None:
@@ -495,6 +502,7 @@ def select_demo_pdf(file_name: str):
         selected_file_thumbnail.update()
     show_file_selection()
     ui.notify(f'✅ Selected demo PDF: {file_name}', type='positive')
+
 
 async def handle_summarize(
     max_words_input,
@@ -533,13 +541,15 @@ async def handle_summarize(
         elif selected_demo_file.get('path'):
             source_file_path = selected_demo_file.get('path')
             if not os.path.exists(source_file_path):
-                ui.notify('Please choose a demo PDF file first.', type='warning')
+                ui.notify('Please choose a demo PDF file first.',
+                          type='warning')
                 if status_label is not None:
                     status_label.set_text('Ready.')
                     status_label.update()
                 return
         else:
-            ui.notify('Please upload a PDF file or select one demo PDF first.', type='warning')
+            ui.notify(
+                'Please upload a PDF file or select one demo PDF first.', type='warning')
             if status_label is not None:
                 status_label.set_text('Ready.')
                 status_label.update()
@@ -549,7 +559,8 @@ async def handle_summarize(
         use_remote = use_vector and embedding_radio.value == 'remote'
         llm_model = llm_model_select.value
         if not llm_model:
-            ui.notify('Choose an LLM model (refresh the list if empty).', type='warning')
+            ui.notify(
+                'Choose an LLM model (refresh the list if empty).', type='warning')
             if status_label is not None:
                 status_label.set_text('Ready.')
                 status_label.update()
@@ -607,8 +618,10 @@ async def handle_summarize(
         )
         elapsed_s = time.perf_counter() - t0
 
-        timing_sec = result.get("_timing_sec") if isinstance(result, dict) else None
-        summary_text = result.get("summary", "No summary.") if isinstance(result, dict) else str(result)
+        timing_sec = result.get("_timing_sec") if isinstance(
+            result, dict) else None
+        summary_text = result.get("summary", "No summary.") if isinstance(
+            result, dict) else str(result)
         summary_label.set_text(summary_text)
         sources = result.get("sources", []) if isinstance(result, dict) else []
         if isinstance(sources, list) and sources:
@@ -622,7 +635,8 @@ async def handle_summarize(
                 rendered_sources.append(
                     f"{idx}. {src_name} ({src_loc})\n{src_excerpt}"
                 )
-            sources_text = "\n\n".join(rendered_sources) if rendered_sources else "No source attribution available."
+            sources_text = "\n\n".join(
+                rendered_sources) if rendered_sources else "No source attribution available."
         else:
             sources_text = "No source attribution available."
         if sources_label is not None:
@@ -649,7 +663,8 @@ async def handle_summarize(
             llm_model=str(llm_model),
         )
         if status_label is not None:
-            status_label.set_text(format_done_status_line(elapsed_s, timing_sec))
+            status_label.set_text(
+                format_done_status_line(elapsed_s, timing_sec))
             status_label.update()
         if results_container and download_button:
             results_container.set_visibility(True)
@@ -694,6 +709,7 @@ async def handle_summarize(
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
+
 @ui.page('/')
 def main_page():
     global summary_label, sources_label, keywords_label, tags_label, results_container, download_button
@@ -721,9 +737,17 @@ def main_page():
   .pdf-upload-styled .q-uploader__list {
     display: none !important;
   }
-  .pdf-upload-styled .q-uploader {
+  /*
+    QUploader only handles drag once the pointer is over .q-uploader. A short
+    strip under the Browse button meant drops on the rest of the dashed card
+    never reached it — stretch the uploader to the full card via the layer
+    class and pointer-events (see layout below).
+  */
+  .pdf-upload-drop-layer.q-uploader,
+  .pdf-upload-drop-layer .q-uploader {
     width: 100% !important;
-    min-height: 112px !important;
+    min-height: 100% !important;
+    height: 100% !important;
     box-shadow: none !important;
     background: rgba(255, 255, 255, 0.35) !important;
     border-radius: 0.875rem !important;
@@ -771,7 +795,8 @@ def main_page():
     with ui.column().classes('items-center p-10 gap-8 text-xl max-w-7xl w-full mx-auto'):
 
         with ui.row().classes('items-center gap-3 justify-center flex-wrap text-center'):
-            ui.icon('sym_o_article').classes('text-4xl text-primary shrink-0 opacity-90')
+            ui.icon('sym_o_article').classes(
+                'text-4xl text-primary shrink-0 opacity-90')
             ui.label('PDF Summarizer with LLMs — WP12 · Statistics Portugal').classes(
                 'text-3xl font-medium text-slate-900 tracking-tight'
             )
@@ -790,35 +815,42 @@ def main_page():
                     'w-full rounded-2xl border-2 border-dashed '
                     'border-slate-300 bg-gradient-to-b from-slate-50 to-white '
                     'shadow-inner hover:border-primary hover:from-blue-50/60 hover:to-white '
-                    'transition-colors duration-200 overflow-hidden gap-4 p-5'
+                    'transition-colors duration-200 overflow-hidden gap-4 p-5 relative'
                 ):
-                    with ui.row().classes('w-full gap-4 items-center'):
-                        ui.icon('sym_o_picture_as_pdf').classes(
-                            'text-5xl text-red-700/85 shrink-0 hidden sm:flex'
-                        )
-                        with ui.column().classes('flex-1 min-w-0 gap-1'):
-                            ui.label('Browse or drop a PDF').classes(
-                                'text-base font-medium text-slate-700'
-                            )
-                            ui.label(
-                                'Choose a file with the button, or drag a PDF into the '
-                                'dashed area below.'
-                            ).classes('text-sm text-gray-500')
-
-                    ui.button(
-                        'Browse PDF files',
-                        icon='sym_o_folder_open',
-                        on_click=lambda: pdf_upload_component.run_method('pickFiles'),
-                    ).props('unelevated color=primary no-caps').classes(
-                        'w-full py-3 text-lg shadow-sm'
-                    )
-
                     pdf_upload_component = ui.upload(
                         on_upload=handle_upload,
                         auto_upload=True,
                     ).props(
                         'accept=".pdf" max-files=1 color=primary flat'
-                    ).classes('w-full pdf-upload-styled')
+                    ).classes(
+                        'absolute inset-0 w-full h-full pdf-upload-styled '
+                        'pdf-upload-drop-layer'
+                    )
+
+                    with ui.column().classes(
+                        'relative z-10 w-full gap-4 pointer-events-none'
+                    ):
+                        with ui.row().classes('w-full gap-4 items-center'):
+                            ui.icon('sym_o_picture_as_pdf').classes(
+                                'text-5xl text-red-700/85 shrink-0 hidden sm:flex'
+                            )
+                            with ui.column().classes('flex-1 min-w-0 gap-1'):
+                                ui.label('Browse or drop a PDF').classes(
+                                    'text-base font-medium text-slate-700'
+                                )
+                                ui.label(
+                                    'Choose a file with the button, or drag a PDF anywhere '
+                                    'in this dashed area.'
+                                ).classes('text-sm text-gray-500')
+
+                        ui.button(
+                            'Browse PDF files',
+                            icon='sym_o_folder_open',
+                            on_click=lambda: pdf_upload_component.run_method(
+                                'pickFiles'),
+                        ).props('unelevated color=primary no-caps').classes(
+                            'w-full py-3 text-lg shadow-sm pointer-events-auto'
+                        )
 
                 demo_files = list_demo_pdfs()
                 if demo_files:
@@ -829,10 +861,12 @@ def main_page():
                         for file_name in demo_files:
                             ui.button(
                                 f'📎 {file_name}',
-                                on_click=lambda _, name=file_name: select_demo_pdf(name),
+                                on_click=lambda _, name=file_name: select_demo_pdf(
+                                    name),
                             ).props('flat dense no-caps color=primary').classes('px-2 py-1')
                 else:
-                    ui.label('No demo PDFs found in demo_docs.').classes('text-sm text-gray-600')
+                    ui.label('No demo PDFs found in demo_docs.').classes(
+                        'text-sm text-gray-600')
 
             with ui.column().classes('w-full gap-4') as selected_file_container:
                 ui.label('File to process').classes(
@@ -867,7 +901,8 @@ def main_page():
                                 selected_file_size_label = ui.label('').classes(
                                     'text-sm text-gray-500 tabular-nums'
                                 )
-                                ui.label('·').classes('text-sm text-gray-300 select-none')
+                                ui.label('·').classes(
+                                    'text-sm text-gray-300 select-none')
                                 selected_file_source_label = ui.label('').classes(
                                     'text-xs text-gray-400'
                                 )
@@ -979,8 +1014,10 @@ def main_page():
                         def _sync_provider_options_and_model_choice():
                             apply_provider_select_options(
                                 provider_select,
-                                include_local_ollama=bool(OLLAMA_PROBE_STATE.get('ok')),
-                                include_ine_ollama=bool(OLLAMA_INE_PROBE_STATE.get('ok')),
+                                include_local_ollama=bool(
+                                    OLLAMA_PROBE_STATE.get('ok')),
+                                include_ine_ollama=bool(
+                                    OLLAMA_INE_PROBE_STATE.get('ok')),
                             )
                             pv = provider_select.value
                             models = provider_models_cache.get(pv) or DEFAULT_LLM_MODELS_FALLBACK.get(
@@ -1016,7 +1053,8 @@ def main_page():
                                     llm_model_select.value = models[0]
                                     llm_model_select.update()
                                 if notify:
-                                    ui.notify(f'Loaded {len(models)} models for {LLM_PROVIDER_LABEL.get(prov, prov)}.', type='positive')
+                                    ui.notify(
+                                        f'Loaded {len(models)} models for {LLM_PROVIDER_LABEL.get(prov, prov)}.', type='positive')
                             except Exception as e:
                                 fb = DEFAULT_LLM_MODELS_FALLBACK.get(
                                     prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']
@@ -1033,8 +1071,10 @@ def main_page():
                             await refresh_llm_models_for_provider(provider_select.value, notify=True)
 
                         async def run_ollama_probe_ui(user_hint=None, *, notify: bool = True):
-                            ollama_status_label.set_text('Checking local Ollama…')
-                            ollama_status_label.classes('text-xs text-slate-600 leading-snug')
+                            ollama_status_label.set_text(
+                                'Checking local Ollama…')
+                            ollama_status_label.classes(
+                                'text-xs text-slate-600 leading-snug')
 
                             hint = user_hint
 
@@ -1057,15 +1097,20 @@ def main_page():
                                 ollama_status_label.set_text(
                                     f'Ollama is running at {result["base_url"]} — {n} model(s) listed.'
                                 )
-                                ollama_status_label.classes('text-xs text-emerald-800 leading-snug')
+                                ollama_status_label.classes(
+                                    'text-xs text-emerald-800 leading-snug')
                                 if models:
-                                    provider_models_cache['ollama'] = list(models)
+                                    provider_models_cache['ollama'] = list(
+                                        models)
                                 if notify:
-                                    ui.notify(f'Local Ollama OK ({n} models).', type='positive')
+                                    ui.notify(
+                                        f'Local Ollama OK ({n} models).', type='positive')
                             else:
-                                msg = result.get('error') or 'Ollama not available.'
+                                msg = result.get(
+                                    'error') or 'Ollama not available.'
                                 ollama_status_label.set_text(msg)
-                                ollama_status_label.classes('text-xs text-red-700 leading-snug')
+                                ollama_status_label.classes(
+                                    'text-xs text-red-700 leading-snug')
                                 provider_models_cache['ollama'] = list(
                                     DEFAULT_LLM_MODELS_FALLBACK['ollama']
                                 )
@@ -1080,8 +1125,10 @@ def main_page():
                             refresh_summarizer_summary()
 
                         async def run_ollama_ine_probe_ui(*, notify: bool = True):
-                            ollama_ine_status_label.set_text('Checking Statistics Portugal remote Ollama…')
-                            ollama_ine_status_label.classes('text-xs text-slate-600 leading-snug')
+                            ollama_ine_status_label.set_text(
+                                'Checking Statistics Portugal remote Ollama…')
+                            ollama_ine_status_label.classes(
+                                'text-xs text-slate-600 leading-snug')
                             try:
                                 result = await run.cpu_bound(
                                     cpu_bound_probe_ollama_ine, 'https://ollama.ine.pt'
@@ -1103,15 +1150,20 @@ def main_page():
                                 ollama_ine_status_label.set_text(
                                     f'Statistics Portugal Ollama is reachable at {result.get("base_url") or "https://ollama.ine.pt"} — {n} model(s) listed.'
                                 )
-                                ollama_ine_status_label.classes('text-xs text-emerald-800 leading-snug')
+                                ollama_ine_status_label.classes(
+                                    'text-xs text-emerald-800 leading-snug')
                                 if models:
-                                    provider_models_cache['ollama_ine'] = list(models)
+                                    provider_models_cache['ollama_ine'] = list(
+                                        models)
                                 if notify:
-                                    ui.notify(f'Statistics Portugal remote Ollama OK ({n} models).', type='positive')
+                                    ui.notify(
+                                        f'Statistics Portugal remote Ollama OK ({n} models).', type='positive')
                             else:
-                                msg = result.get('error') or 'Statistics Portugal remote Ollama not available.'
+                                msg = result.get(
+                                    'error') or 'Statistics Portugal remote Ollama not available.'
                                 ollama_ine_status_label.set_text(msg)
-                                ollama_ine_status_label.classes('text-xs text-red-700 leading-snug')
+                                ollama_ine_status_label.classes(
+                                    'text-xs text-red-700 leading-snug')
                                 provider_models_cache['ollama_ine'] = list(
                                     DEFAULT_LLM_MODELS_FALLBACK['ollama_ine']
                                 )
@@ -1141,12 +1193,14 @@ def main_page():
                             ui.button(
                                 'Check local Ollama',
                                 icon='sym_o_network_ping',
-                                on_click=lambda: asyncio.create_task(run_ollama_probe_ui()),
+                                on_click=lambda: asyncio.create_task(
+                                    run_ollama_probe_ui()),
                             ).props('outline dense no-caps color=primary').classes('shadow-sm')
                             ui.button(
                                 'Check Statistics Portugal Ollama',
                                 icon='sym_o_network_ping',
-                                on_click=lambda: asyncio.create_task(run_ollama_ine_probe_ui()),
+                                on_click=lambda: asyncio.create_task(
+                                    run_ollama_ine_probe_ui()),
                             ).props('outline dense no-caps color=primary').classes('shadow-sm')
                             ui.button(
                                 'Refresh models',
@@ -1160,7 +1214,8 @@ def main_page():
 
                         ui.timer(
                             0.35,
-                            lambda: asyncio.create_task(refresh_all_llm_availability_and_models()),
+                            lambda: asyncio.create_task(
+                                refresh_all_llm_availability_and_models()),
                             once=True,
                             immediate=False,
                         )
@@ -1218,7 +1273,8 @@ def main_page():
                             ).props('vertical')
 
                     def sync_embedding_visibility():
-                        embedding_section.set_visibility(processing_mode.value == 'vector')
+                        embedding_section.set_visibility(
+                            processing_mode.value == 'vector')
                         embedding_section.update()
 
                     embedding_section.set_visibility(True)
@@ -1245,7 +1301,7 @@ def main_page():
                                     'RecursiveCharacterTextSplitter.'
                                 ),
                             },
-                            value='pypdf',
+                            value='docling',
                         ).props('vertical')
 
                 def refresh_summarizer_summary():
@@ -1264,7 +1320,8 @@ def main_page():
                     mode_txt = 'Plain text' if mode == 'plain' else 'Vector retrieval'
                     loader_txt = 'Docling' if loader == 'docling' else 'PyPDF'
                     summarizer_summary_mode_label.set_text(f'Mode: {mode_txt}')
-                    summarizer_summary_loader_label.set_text(f'Loader: {loader_txt}')
+                    summarizer_summary_loader_label.set_text(
+                        f'Loader: {loader_txt}')
                     summarizer_summary_mode_label.update()
                     summarizer_summary_loader_label.update()
                     if mode == 'vector':
@@ -1273,7 +1330,8 @@ def main_page():
                             if embedding_radio.value == 'local'
                             else 'Remote (qwen3-embedding:8b)'
                         )
-                        summarizer_summary_embeddings_label.set_text(f'Embeddings: {emb_txt}')
+                        summarizer_summary_embeddings_label.set_text(
+                            f'Embeddings: {emb_txt}')
                         summarizer_summary_embeddings_label.update()
                         summarizer_summary_embeddings_row.set_visibility(True)
                     else:
@@ -1284,14 +1342,16 @@ def main_page():
                     sync_embedding_visibility()
                     refresh_summarizer_summary()
 
-                processing_mode.on_value_change(lambda _: _sync_mode_and_summary())
+                processing_mode.on_value_change(
+                    lambda _: _sync_mode_and_summary())
 
                 def _apply_llm_fallback_models():
                     prov = provider_select.value
                     if prov == 'ollama' and OLLAMA_PROBE_STATE.get('ok'):
                         models = OLLAMA_PROBE_STATE.get('models') or []
                         if not models:
-                            models = list(DEFAULT_LLM_MODELS_FALLBACK['ollama'])
+                            models = list(
+                                DEFAULT_LLM_MODELS_FALLBACK['ollama'])
                         llm_model_select.options = models
                         llm_model_select.value = models[0]
                         llm_model_select.update()
@@ -1299,7 +1359,8 @@ def main_page():
                     if prov == 'ollama_ine' and OLLAMA_INE_PROBE_STATE.get('ok'):
                         models = OLLAMA_INE_PROBE_STATE.get('models') or []
                         if not models:
-                            models = list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
+                            models = list(
+                                DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
                         llm_model_select.options = models
                         llm_model_select.value = models[0]
                         llm_model_select.update()
@@ -1316,7 +1377,8 @@ def main_page():
                         llm_model_select.value = fb[0]
                         llm_model_select.update()
                         return
-                    fb = DEFAULT_LLM_MODELS_FALLBACK.get(prov, DEFAULT_LLM_MODELS_FALLBACK['ssp'])
+                    fb = DEFAULT_LLM_MODELS_FALLBACK.get(
+                        prov, DEFAULT_LLM_MODELS_FALLBACK['ssp'])
                     llm_model_select.options = fb
                     llm_model_select.value = fb[0]
                     llm_model_select.update()
@@ -1325,13 +1387,17 @@ def main_page():
                     _apply_llm_fallback_models()
                     refresh_summarizer_summary()
 
-                provider_select.on_value_change(lambda _: _on_llm_provider_changed())
+                provider_select.on_value_change(
+                    lambda _: _on_llm_provider_changed())
 
-                llm_model_select.on_value_change(lambda _: refresh_summarizer_summary())
+                llm_model_select.on_value_change(
+                    lambda _: refresh_summarizer_summary())
 
-                loader_radio.on_value_change(lambda _: refresh_summarizer_summary())
+                loader_radio.on_value_change(
+                    lambda _: refresh_summarizer_summary())
 
-                embedding_radio.on_value_change(lambda _: refresh_summarizer_summary())
+                embedding_radio.on_value_change(
+                    lambda _: refresh_summarizer_summary())
 
                 def open_summarizer_editor():
                     summarizer_config_summary_panel.set_visibility(False)
@@ -1390,13 +1456,16 @@ def main_page():
                         ):
                             with ui.column().classes('gap-1 shrink-0'):
                                 ui.label('Max words').classes(_pill_cap)
-                                parameters_pill_max_words = ui.label('').classes(_pill_val)
+                                parameters_pill_max_words = ui.label(
+                                    '').classes(_pill_val)
                             with ui.column().classes('gap-1 shrink-0'):
                                 ui.label('Keywords').classes(_pill_cap)
-                                parameters_pill_keywords = ui.label('').classes(_pill_val)
+                                parameters_pill_keywords = ui.label(
+                                    '').classes(_pill_val)
                             with ui.column().classes('gap-1 shrink-0'):
                                 ui.label('Tags').classes(_pill_cap)
-                                parameters_pill_tags = ui.label('').classes(_pill_val)
+                                parameters_pill_tags = ui.label(
+                                    '').classes(_pill_val)
                             with ui.column().classes('gap-1 min-w-0 flex-1 max-w-full'):
                                 ui.label('Language').classes(_pill_cap)
                                 parameters_pill_lang = ui.label('').classes(
@@ -1488,10 +1557,14 @@ def main_page():
             parameters_editor_panel.set_visibility(False)
             refresh_parameters_summary()
 
-            max_words_input.on_value_change(lambda _: refresh_parameters_summary())
-            max_keywords_input.on_value_change(lambda _: refresh_parameters_summary())
-            max_tags_input.on_value_change(lambda _: refresh_parameters_summary())
-            out_lang_input.on_value_change(lambda _: refresh_parameters_summary())
+            max_words_input.on_value_change(
+                lambda _: refresh_parameters_summary())
+            max_keywords_input.on_value_change(
+                lambda _: refresh_parameters_summary())
+            max_tags_input.on_value_change(
+                lambda _: refresh_parameters_summary())
+            out_lang_input.on_value_change(
+                lambda _: refresh_parameters_summary())
 
         with ui.column().classes('w-full gap-2') as summarize_actions_container:
             status_label = ui.label('Ready.').classes(
@@ -1516,7 +1589,8 @@ def main_page():
                     summary_label.set_text('Summary will appear here.')
                     summary_label.update()
                 if sources_label is not None:
-                    sources_label.set_text('Information sources will appear here.')
+                    sources_label.set_text(
+                        'Information sources will appear here.')
                     sources_label.update()
                 if keywords_label is not None:
                     keywords_label.set_text('Keywords will appear here.')
@@ -1570,29 +1644,37 @@ def main_page():
         with ui.column().classes('w-full gap-4') as results_container:
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('sym_o_summarize').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.icon('sym_o_summarize').classes(
+                        'text-2xl text-primary shrink-0 opacity-90')
                     ui.label('Summary').classes('text-xl font-medium')
-                summary_label = ui.label('Summary will appear here.').classes('w-full whitespace-pre-wrap')
+                summary_label = ui.label('Summary will appear here.').classes(
+                    'w-full whitespace-pre-wrap')
 
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('sym_o_format_quote').classes('text-2xl text-primary shrink-0 opacity-90')
-                    ui.label('Information sources').classes('text-xl font-medium')
+                    ui.icon('sym_o_format_quote').classes(
+                        'text-2xl text-primary shrink-0 opacity-90')
+                    ui.label('Information sources').classes(
+                        'text-xl font-medium')
                 sources_label = ui.label('Information sources will appear here.').classes(
                     'w-full whitespace-pre-wrap text-sm leading-relaxed'
                 )
 
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('sym_o_key').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.icon('sym_o_key').classes(
+                        'text-2xl text-primary shrink-0 opacity-90')
                     ui.label('Keywords').classes('text-xl font-medium')
-                keywords_label = ui.label('Keywords will appear here.').classes('w-full')
+                keywords_label = ui.label(
+                    'Keywords will appear here.').classes('w-full')
 
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
                 with ui.row().classes('items-center gap-2'):
-                    ui.icon('sym_o_sell').classes('text-2xl text-primary shrink-0 opacity-90')
+                    ui.icon('sym_o_sell').classes(
+                        'text-2xl text-primary shrink-0 opacity-90')
                     ui.label('Tags').classes('text-xl font-medium')
-                tags_label = ui.label('Tags will appear here.').classes('w-full')
+                tags_label = ui.label(
+                    'Tags will appear here.').classes('w-full')
 
         def download_summary_export():
             ui.download.content(
@@ -1619,12 +1701,13 @@ def main_page():
         results_container.set_visibility(False)
         download_button.set_visibility(False)
 
+
 if __name__ in {'__main__', '__mp_main__'}:
     root_path = os.getenv('NICEGUI_ROOT_PATH', '').strip()
     run_kwargs = {
         'host': '0.0.0.0',
         'port': 5001,
-        'reload': True, # reload the app when the code changes
+        'reload': True,  # reload the app when the code changes
         'title': 'PDF Summarizer',
     }
     if root_path:
