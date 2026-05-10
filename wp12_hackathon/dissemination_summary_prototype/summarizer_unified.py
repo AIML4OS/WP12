@@ -14,7 +14,7 @@ load_dotenv(os.path.join(script_dir, '.env'), override=True)
 import warnings
 import time
 import re
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Union, Any, Tuple, Set
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
@@ -89,6 +89,8 @@ def _attach_timing_breakdown(payload: Any, timing: Dict[str, float]) -> Any:
     if isinstance(payload, dict):
         merged = dict(payload)
         merged.setdefault("sources", [])
+        merged.setdefault("numeric_claims", [])
+        merged.setdefault("unmatched_numbers", [])
         merged["_timing_sec"] = timing
         return merged
     return {
@@ -96,8 +98,30 @@ def _attach_timing_breakdown(payload: Any, timing: Dict[str, float]) -> Any:
         "keywords": [],
         "tags": [],
         "sources": [],
+        "numeric_claims": [],
+        "unmatched_numbers": [],
         "_timing_sec": timing,
     }
+
+
+# Numeric-token regex used to align numbers in the LLM summary with the source
+# text. Captures: optional sign, integer part with optional thousands grouping
+# (using ".", ",", NBSP, or regular space, but only when each grouped run is
+# exactly 3 digits), optional decimal part, and optional trailing percent.
+# Right/left boundaries block word characters so that "2023" is not matched
+# inside "2023a" and "1" is not matched inside "1st".
+_NUMERIC_TOKEN_RE = re.compile(
+    r"(?<!\w)"
+    r"(?:[+\u2212-])?"
+    r"(?:"
+    r"\d{1,3}(?:[.,\u00A0\s]\d{3})+"
+    r"|"
+    r"\d+"
+    r")"
+    r"(?:[.,]\d+)?"
+    r"(?:\s?%)?"
+    r"(?!\w)"
+)
 
 
 # Suppress PyTorch MPS warnings
@@ -543,38 +567,89 @@ class PDFSummarizer:
         llm_config = llm_config or {}
         self.llm = self._create_llm(llm_provider, **llm_config)
 
+    @staticmethod
+    def _extract_balanced_json_objects(text: str) -> List[str]:
+        """Yield every balanced '{...}' substring found in `text`, in order.
+
+        Walks the text once, counting braces while respecting JSON string
+        literals (including escaped quotes), so it correctly returns objects
+        that are wrapped in markdown code fences, surrounded by prose, or that
+        contain nested structures. Used as a robust fallback for `_safe_json_parse`
+        when the LLM adds preamble/trailing commentary around its JSON output.
+        """
+        out: List[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] != '{':
+                i += 1
+                continue
+            start = i
+            depth = 0
+            in_str = False
+            escape = False
+            j = i
+            while j < n:
+                ch = text[j]
+                if escape:
+                    escape = False
+                elif ch == '\\' and in_str:
+                    escape = True
+                elif ch == '"':
+                    in_str = not in_str
+                elif not in_str:
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            out.append(text[start:j + 1])
+                            i = j + 1
+                            break
+                j += 1
+            else:
+                # Reached end of text without closing the object -> stop.
+                break
+            if depth != 0:
+                # Defensive: malformed; advance past the opening brace.
+                i = start + 1
+        return out
+
     def _safe_json_parse(self, result):
-        """Parse JSON or return text if parsing fails."""
-        import re
-        
+        """Parse JSON or return a fallback dict when parsing fails."""
         content = result.content if hasattr(result, 'content') else str(result)
-        
-        # First try direct JSON parsing
+
+        # 1. Direct parse (the happy path when the LLM honours the contract).
         try:
             return json.loads(content.strip())
         except json.JSONDecodeError:
             pass
-        
-        # Try to extract JSON from markdown code blocks
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-        if json_match:
+
+        # 2. Markdown code block. Use [\s\S] so we don't depend on DOTALL flag
+        #    semantics, and a brace-counting fallback below handles the cases
+        #    where the fence is missing or only partially closed.
+        fence_match = re.search(
+            r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', content
+        )
+        if fence_match:
             try:
-                json_str = json_match.group(1)
-                return json.loads(json_str)
+                return json.loads(fence_match.group(1))
             except json.JSONDecodeError:
                 pass
-        
-        # Try to find JSON object anywhere in the text
-        json_match = re.search(r'\{.*?\}', content, re.DOTALL)
-        if json_match:
+
+        # 3. Brace-counting scan: find every balanced {...} object in the text
+        #    and try the LARGEST first (most likely the full payload). This
+        #    handles preambles, trailing commentary, and nested objects that
+        #    the previous non-greedy regex used to truncate.
+        objects = self._extract_balanced_json_objects(content)
+        for obj in sorted(objects, key=len, reverse=True):
             try:
-                json_str = json_match.group(0)
-                return json.loads(json_str)
+                return json.loads(obj)
             except json.JSONDecodeError:
-                pass
-        
-        # If all fails, return fallback
-        print(f"⚠️ JSON parsing failed completely")
+                continue
+
+        # 4. Last resort: visible fallback so the UI doesn't silently mislead.
+        print("⚠️ JSON parsing failed completely")
         print(f"🔍 Raw LLM output: {content[:200]}...")
         return {
             "summary": content,
@@ -587,19 +662,36 @@ class PDFSummarizer:
         self,
         docs: Any,
         *,
+        summary_text: Optional[str] = None,
         display_source_name: Optional[str] = None,
         pdf_path: Optional[str] = None,
         max_sources: int = 6,
         max_excerpt_chars: int = 280,
-    ) -> List[Dict[str, str]]:
-        """Build compact source-attribution entries from retrieved chunks."""
+    ) -> List[Dict[str, Any]]:
+        """Build compact source-attribution entries from retrieved chunks.
+
+        When `summary_text` is provided, sources are selected greedily so the
+        displayed set covers as many distinct numeric values from the summary
+        as possible, and each entry carries a `supports_numbers` field listing
+        the summary numbers that appear verbatim in its full chunk text. This
+        lets the UI tie every figure in the summary back to the source it came
+        from, which is what protects against the classic RAG failure mode
+        where the model emits a number that is not actually in any cited
+        passage.
+        """
         if not isinstance(docs, list):
             return []
-        sources: List[Dict[str, str]] = []
+
+        summary_numbers = self._extract_numeric_tokens(summary_text or "")
+
+        candidates: List[Dict[str, Any]] = []
         seen = set()
         page_texts_norm: Optional[List[str]] = None
+
         for doc in docs:
-            page_content = getattr(doc, "page_content", "") if doc is not None else ""
+            page_content = (
+                getattr(doc, "page_content", "") if doc is not None else ""
+            )
             meta = getattr(doc, "metadata", {}) if doc is not None else {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -615,7 +707,9 @@ class PDFSummarizer:
             if page_label == "page n/a" and pdf_path and excerpt != "(empty excerpt)":
                 if page_texts_norm is None:
                     page_texts_norm = self._load_pdf_page_texts_norm(pdf_path)
-                inferred_page = self._infer_page_from_excerpt(excerpt, page_texts_norm)
+                inferred_page = self._infer_page_from_excerpt(
+                    excerpt, page_texts_norm
+                )
                 if inferred_page is not None:
                     page_label = f"p.{inferred_page}"
 
@@ -624,17 +718,72 @@ class PDFSummarizer:
                 continue
             seen.add(dedupe_key)
 
-            i = len(sources) + 1
-            sources.append(
+            # Match against the FULL chunk text (not the truncated excerpt) so
+            # we don't miss a number that happens to fall after the excerpt cut.
+            if summary_numbers:
+                supports = [
+                    n
+                    for n in summary_numbers
+                    if self._numeric_token_in_text(page_content, n)
+                ]
+            else:
+                supports = []
+
+            candidates.append(
                 {
-                    "id": str(i),
-                    "source": source_name,
-                    "location": page_label,
+                    "source_name": source_name,
+                    "page_label": page_label,
                     "excerpt": excerpt,
+                    "supports": supports,
                 }
             )
-            if len(sources) >= max_sources:
-                break
+
+        if not candidates:
+            return []
+
+        # Selection: with a summary, greedily maximise distinct numeric
+        # coverage; without one, preserve the original first-N behaviour.
+        if summary_numbers:
+            chosen: List[int] = []
+            covered: Set[str] = set()
+            remaining: Set[int] = set(range(len(candidates)))
+            while remaining and len(chosen) < max_sources:
+                best_i = min(
+                    remaining,
+                    key=lambda i: (
+                        -(len(set(candidates[i]["supports"]) - covered)),
+                        i,
+                    ),
+                )
+                new_count = len(set(candidates[best_i]["supports"]) - covered)
+                if new_count == 0:
+                    break
+                chosen.append(best_i)
+                covered |= set(candidates[best_i]["supports"])
+                remaining.discard(best_i)
+            # Top up with the next chunks in original retrieval order so we
+            # still surface high-relevance excerpts that don't add new numbers.
+            for i in range(len(candidates)):
+                if len(chosen) >= max_sources:
+                    break
+                if i not in chosen:
+                    chosen.append(i)
+            chosen.sort()
+        else:
+            chosen = list(range(min(len(candidates), max_sources)))
+
+        sources: List[Dict[str, Any]] = []
+        for new_idx, i in enumerate(chosen, start=1):
+            c = candidates[i]
+            sources.append(
+                {
+                    "id": str(new_idx),
+                    "source": c["source_name"],
+                    "location": c["page_label"],
+                    "excerpt": c["excerpt"],
+                    "supports_numbers": list(c["supports"]),
+                }
+            )
         return sources
 
     def _normalize_for_match(self, text: str) -> str:
@@ -642,6 +791,99 @@ class PDFSummarizer:
         text = re.sub(r"\s+", " ", text)
         text = re.sub(r"[^a-z0-9à-ÿ ]+", "", text)
         return text.strip()
+
+    def _extract_numeric_tokens(self, text: str) -> List[str]:
+        """Extract numeric tokens from `text` in reading order, deduped.
+
+        Used to identify the figures/percentages/years/etc. that appear in the
+        generated summary so we can verify each one against the source text.
+        """
+        if not text:
+            return []
+        tokens: List[str] = []
+        seen: Set[str] = set()
+        for m in _NUMERIC_TOKEN_RE.finditer(text):
+            tok = m.group(0).strip().rstrip(".,;:")
+            if not tok or not any(c.isdigit() for c in tok):
+                continue
+            if tok in seen:
+                continue
+            seen.add(tok)
+            tokens.append(tok)
+        return tokens
+
+    def _numeric_token_in_text(self, text: str, token: str) -> bool:
+        """Verbatim-with-flexible-whitespace check: is `token` present in `text`?
+
+        Whitespace is collapsed on both sides and NBSP is treated like a space,
+        so "1 234,56" matches "1\u00A0234,56" and "12 %" matches "12%".
+        """
+        if not text or not token:
+            return False
+        norm_text = re.sub(r"\s+", " ", text.replace("\u00A0", " "))
+        norm_token = re.sub(r"\s+", " ", token.replace("\u00A0", " "))
+        if norm_token in norm_text:
+            return True
+        if "%" in norm_token:
+            if norm_token.replace(" %", "%") in norm_text:
+                return True
+            if norm_token.replace("%", " %") in norm_text:
+                return True
+        return False
+
+    def _find_first_numeric_span(
+        self, text: str, token: str
+    ) -> Optional[Tuple[int, int]]:
+        """Locate the first occurrence of `token` in `text` (whitespace-flexible).
+
+        Returns the (start, end) offsets in the original `text`, or None when
+        the token cannot be located. Used by full-text mode to centre an
+        excerpt window around the matched number.
+        """
+        if not text or not token:
+            return None
+        candidates = [token]
+        if "%" in token:
+            candidates.extend(
+                [token.replace(" %", "%"), token.replace("%", " %")]
+            )
+        for cand in candidates:
+            parts = [p for p in re.split(r"\s+", cand.strip()) if p]
+            if not parts:
+                continue
+            flex = r"\s+".join(re.escape(p) for p in parts)
+            m = re.search(flex, text)
+            if m:
+                return (m.start(), m.end())
+        return None
+
+    def _build_numeric_coverage(
+        self,
+        summary_text: str,
+        sources: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Map each summary number to the source ids whose excerpt supports it.
+
+        Returns a dict with two keys:
+        - `numeric_claims`: list of {"number": str, "source_ids": List[str]}
+          in summary reading order.
+        - `unmatched_numbers`: list of summary numbers without any supporting
+          source excerpt. Surfaced in the UI as a confidence warning.
+        """
+        summary_numbers = self._extract_numeric_tokens(summary_text or "")
+        claims: List[Dict[str, Any]] = []
+        unmatched: List[str] = []
+        for num in summary_numbers:
+            ids = [
+                str(s.get("id"))
+                for s in sources
+                if isinstance(s, dict)
+                and num in (s.get("supports_numbers") or [])
+            ]
+            claims.append({"number": num, "source_ids": ids})
+            if not ids:
+                unmatched.append(num)
+        return {"numeric_claims": claims, "unmatched_numbers": unmatched}
 
     def _load_pdf_page_texts_norm(self, pdf_path: str) -> List[str]:
         """Load page texts (normalized) to support fallback page inference."""
@@ -744,24 +986,93 @@ class PDFSummarizer:
         self,
         pdf_path: str,
         content: str,
+        *,
+        summary_text: Optional[str] = None,
         display_source_name: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
-        """Provide a coarse source reference when retrieval mode is not used."""
-        excerpt = " ".join(str(content).split())
-        if len(excerpt) > 360:
-            excerpt = excerpt[:359].rstrip() + "…"
-        return [
-            {
-                "id": "1",
-                "source": (
-                    os.path.basename(str(display_source_name))
-                    if display_source_name
-                    else (os.path.basename(pdf_path) or "document")
-                ),
-                "location": "full document",
-                "excerpt": excerpt or "(content unavailable)",
-            }
-        ]
+        max_sources: int = 6,
+        excerpt_window: int = 240,
+    ) -> List[Dict[str, Any]]:
+        """Source attribution for full-text (non-RAG) mode.
+
+        With a `summary_text`, build focused excerpts centred on each numeric
+        value present in the summary so users can verify each number against
+        the actual surrounding passage in the source. Numbers that fall inside
+        an already-emitted window are merged into that source instead of
+        producing duplicates. Falls back to the original coarse "full
+        document" reference when there are no summary numbers (or none can be
+        located in the source text).
+        """
+        src_name = (
+            os.path.basename(str(display_source_name))
+            if display_source_name
+            else (os.path.basename(pdf_path) or "document")
+        )
+
+        summary_numbers = self._extract_numeric_tokens(summary_text or "")
+        sources: List[Dict[str, Any]] = []
+
+        if summary_numbers and content:
+            used_windows: List[Tuple[int, int]] = []
+            for num in summary_numbers:
+                span = self._find_first_numeric_span(content, num)
+                if span is None:
+                    continue
+                start, end = span
+
+                # If this number already falls inside a previously emitted
+                # window, attach it to that source rather than emitting a
+                # near-duplicate excerpt.
+                reused_idx: Optional[int] = None
+                for j, (ws, we) in enumerate(used_windows):
+                    if ws <= start and end <= we:
+                        reused_idx = j
+                        break
+                if reused_idx is not None:
+                    supports = sources[reused_idx]["supports_numbers"]
+                    if num not in supports:
+                        supports.append(num)
+                    continue
+
+                if len(sources) >= max_sources:
+                    # Stop emitting new windows but keep folding subsequent
+                    # numbers into existing windows above.
+                    continue
+
+                window_start = max(0, start - excerpt_window // 2)
+                window_end = min(len(content), end + excerpt_window // 2)
+                raw_excerpt = " ".join(content[window_start:window_end].split())
+                if len(raw_excerpt) > 360:
+                    raw_excerpt = raw_excerpt[:359].rstrip() + "…"
+                prefix = "…" if window_start > 0 else ""
+                suffix = "…" if window_end < len(content) else ""
+                excerpt = f"{prefix}{raw_excerpt}{suffix}".strip()
+
+                sources.append(
+                    {
+                        "id": str(len(sources) + 1),
+                        "source": src_name,
+                        "location": "full document",
+                        "excerpt": excerpt or "(content unavailable)",
+                        "supports_numbers": [num],
+                    }
+                )
+                used_windows.append((window_start, window_end))
+
+        if not sources:
+            excerpt = " ".join(str(content).split())
+            if len(excerpt) > 360:
+                excerpt = excerpt[:359].rstrip() + "…"
+            sources.append(
+                {
+                    "id": "1",
+                    "source": src_name,
+                    "location": "full document",
+                    "excerpt": excerpt or "(content unavailable)",
+                    "supports_numbers": [],
+                }
+            )
+
+        return sources
 
     def _create_llm(self, provider: str, **kwargs) -> BaseChatModel:
         """
@@ -863,11 +1174,22 @@ class PDFSummarizer:
                 self._raise_with_auth_guidance(exc)
             out = result.get("answer", result)
             if isinstance(out, dict):
+                summary_text = (
+                    out.get("summary", "")
+                    if isinstance(out.get("summary"), str)
+                    else ""
+                )
                 out["sources"] = self._build_sources_from_docs(
                     result.get("context"),
+                    summary_text=summary_text,
                     display_source_name=display_source_name,
                     pdf_path=pdf_path,
                 )
+                coverage = self._build_numeric_coverage(
+                    summary_text, out["sources"]
+                )
+                out["numeric_claims"] = coverage["numeric_claims"]
+                out["unmatched_numbers"] = coverage["unmatched_numbers"]
             return _attach_timing_breakdown(out, timing)
 
         else:
@@ -902,11 +1224,22 @@ class PDFSummarizer:
                 self._raise_with_auth_guidance(exc)
 
             if isinstance(result, dict):
+                summary_text = (
+                    result.get("summary", "")
+                    if isinstance(result.get("summary"), str)
+                    else ""
+                )
                 result["sources"] = self._build_source_from_full_text(
                     pdf_path,
                     pdf_text,
+                    summary_text=summary_text,
                     display_source_name=display_source_name,
                 )
+                coverage = self._build_numeric_coverage(
+                    summary_text, result["sources"]
+                )
+                result["numeric_claims"] = coverage["numeric_claims"]
+                result["unmatched_numbers"] = coverage["unmatched_numbers"]
             return _attach_timing_breakdown(result, timing)
 
 
@@ -1144,8 +1477,17 @@ class PDFSummarizer:
         You don't add information and you don't make analysis, you just summarize what is already there.
         You pay special attention not to be biased in your summarizations, stay neutral and follow the spirit and tone present in the document.
         When outputting in Portuguese, use the European Portuguese.
+
+        Numerical fidelity is a top priority. Every numeric value you place in the
+        summary (figures, percentages, years, dates, amounts, counts, ratios, ranges,
+        units) must be copied VERBATIM from the provided source text, with the same
+        digits, the same decimal and thousands separators (e.g. keep "1.234,56" as
+        "1.234,56" and "1,234.56" as "1,234.56"), the same units, and the same sign.
+        Do not round, average, convert, recompute, localize or paraphrase a number,
+        even when the surrounding summary is written in another language. If a value
+        is not unambiguously present in the source text, omit it rather than guess.
         """
-        
+
         # Inner system prompt (this is fixed)
         inner_system_prompt = """
         You are a professional document analyzer. Your task is to:
@@ -1153,14 +1495,21 @@ class PDFSummarizer:
         2. Extract relevant keywords and tags
         3. Maintain objectivity and accuracy
         4. Focus on the main points and key findings
+        5. Treat numerical accuracy as critical: any number that appears in the
+           summary must be reproduced verbatim from the provided source text and
+           must remain traceable to it. Never invent, infer, round or recompute
+           a number; if you cannot locate the exact value in the source, omit it.
 
         CRITICAL: You must respond ONLY with valid JSON. No explanations, no markdown, no additional text - just pure JSON.
         """
 
         system_message = f"{inner_system_prompt}\n\n{instruction_prompt}\n\n"
         
-        # Single human prompt template to avoid duplication
-        human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no additional text.
+        # Single human prompt template to avoid duplication.
+        # Keep this prompt tight: only the JSON contract, a brief verbatim-numbers
+        # reminder, an example, and the content. Detailed numeric rules live in
+        # the system message above so they don't leak into the model's response.
+        human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no preamble, no trailing text - just the JSON object.
 
 Required JSON structure:
 {{
@@ -1169,6 +1518,8 @@ Required JSON structure:
     "tags": ["list of {max_tags} tags"]
 }}
 
+Reminder: any number in the summary must be copied verbatim from the source text (same digits, same decimal/thousands separators, same units). Omit numbers you cannot locate verbatim. Full numeric rules are in the system instructions above.
+
 Example valid response:
 {{
     "summary": "The document discusses air transport statistics showing passenger growth.",
@@ -1176,7 +1527,7 @@ Example valid response:
     "tags": ["transport", "data"]
 }}
 
-Now analyze this content and respond with JSON only:
+Now analyze this content and respond with the JSON object only:
 
 {content}"""
         

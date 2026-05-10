@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import html
 import asyncio
 import tempfile
 import base64
@@ -56,11 +58,25 @@ UI_STATE = {
     "file_picker_open": True,
 }
 
-# Last successful run: download filename pattern + timing for status display.
+# Last successful run: download stem (no extension), structured export + timing.
 LAST_SUMMARY_META = {
-    "download_filename": "summary_full.txt",
+    "download_stem": "summary_full",
+    "export_ready": False,
+    "export_summary": "",
+    "export_sources": [],
+    "export_keywords": [],
+    "export_tags": [],
+    "export_numeric_claims": [],
+    "export_unmatched_numbers": [],
     "elapsed_s": None,
     "timing_breakdown": None,
+}
+
+_EXPORT_FORMAT_EXT = {
+    "plaintext": ".txt",
+    "markdown": ".md",
+    "html": ".html",
+    "json": ".json",
 }
 
 # Order matches summarizer_unified.process_pdf phase keys.
@@ -96,7 +112,7 @@ def _sanitize_filename_token(s: str, max_len: int = 72) -> str:
     return raw or "na"
 
 
-def build_summary_download_filename(
+def build_summary_download_stem(
     *,
     max_words: int,
     max_keywords: int,
@@ -108,7 +124,7 @@ def build_summary_download_filename(
     loader: str,
     llm_model: str,
 ) -> str:
-    """Dense ASCII stem reflecting extraction params + summarizer configuration."""
+    """Dense ASCII filename stem (no extension) for exports."""
     lang = _sanitize_filename_token(out_lang.replace(" ", ""), max_len=28)
     prov = _sanitize_filename_token(provider, max_len=12)
     load = _sanitize_filename_token(loader, max_len=12)
@@ -124,7 +140,326 @@ def build_summary_download_filename(
     )
     if len(stem) > 175:
         stem = stem[:175].rstrip("_-.")
-    return f"{stem}.txt"
+    return stem
+
+
+def _new_supports(src: dict, already_shown: set) -> list:
+    """Return the supports_numbers entries on `src` not yet labelled elsewhere.
+
+    Supports are deduplicated across the displayed source list so each summary
+    number is only labelled once - on the first source that actually contains
+    it - rather than repeating "verifies: 2025" on every chunk that mentions
+    the year. The underlying per-source supports_numbers data is preserved on
+    the source dict itself for any consumer that wants the raw mapping.
+    """
+    supports = src.get("supports_numbers") if isinstance(src, dict) else None
+    if not supports:
+        return []
+    return [str(n) for n in supports if str(n) not in already_shown]
+
+
+def _format_supports_line(new_numbers: list) -> str:
+    if not new_numbers:
+        return ""
+    return "verifies: " + ", ".join(new_numbers)
+
+
+def _sources_block_plain(sources: list) -> str:
+    if not isinstance(sources, list) or not sources:
+        return "No source attribution available."
+    parts = []
+    shown_numbers: set = set()
+    for idx, src in enumerate(sources, start=1):
+        if not isinstance(src, dict):
+            continue
+        src_name = str(src.get("source", "document"))
+        src_loc = str(src.get("location", "n/a"))
+        src_excerpt = str(src.get("excerpt", "")).strip()
+        new_numbers = _new_supports(src, shown_numbers)
+        shown_numbers.update(new_numbers)
+        supports_line = _format_supports_line(new_numbers)
+        body = f"   {supports_line}\n   {src_excerpt}" if supports_line else src_excerpt
+        parts.append(f"{idx}. {src_name} ({src_loc})\n{body}")
+    return "\n\n".join(parts) if parts else "No source attribution available."
+
+
+def _numeric_claims_block_plain(
+    numeric_claims: list,
+    unmatched_numbers: list,
+) -> str:
+    """Render a 'Numeric verification' block for the plaintext export."""
+    if not isinstance(numeric_claims, list):
+        numeric_claims = []
+    if not isinstance(unmatched_numbers, list):
+        unmatched_numbers = []
+    if not numeric_claims and not unmatched_numbers:
+        return "No numeric values detected in the summary."
+    lines = []
+    for claim in numeric_claims:
+        if not isinstance(claim, dict):
+            continue
+        num = str(claim.get("number", "")).strip()
+        ids = claim.get("source_ids") or []
+        if ids:
+            lines.append(f"- {num}: source(s) {', '.join(str(i) for i in ids)}")
+        else:
+            lines.append(f"- {num}: NO MATCHING SOURCE EXCERPT")
+    if unmatched_numbers:
+        lines.append("")
+        lines.append(
+            "Warning: the following summary numbers could not be matched "
+            "verbatim to any retrieved source excerpt: "
+            + ", ".join(str(n) for n in unmatched_numbers)
+        )
+    return "\n".join(lines) if lines else "No numeric values detected in the summary."
+
+
+def _build_export_plaintext(
+    summary: str,
+    sources: list,
+    keywords: list,
+    tags: list,
+    numeric_claims: list | None = None,
+    unmatched_numbers: list | None = None,
+) -> str:
+    kw = ", ".join(str(k) for k in keywords) if keywords else "—"
+    tg = ", ".join(str(t) for t in tags) if tags else "—"
+    src_block = _sources_block_plain(sources)
+    num_block = _numeric_claims_block_plain(
+        numeric_claims or [], unmatched_numbers or []
+    )
+    return (
+        f"Summary\n-------\n{summary}\n\n"
+        f"Information sources\n-------------------\n{src_block}\n\n"
+        f"Numeric verification\n--------------------\n{num_block}\n\n"
+        f"Keywords\n--------\n{kw}\n\n"
+        f"Tags\n----\n{tg}\n"
+    )
+
+
+def _build_export_markdown(
+    summary: str,
+    sources: list,
+    keywords: list,
+    tags: list,
+    numeric_claims: list | None = None,
+    unmatched_numbers: list | None = None,
+) -> str:
+    kw = ", ".join(str(k) for k in keywords) if keywords else "—"
+    tg = ", ".join(str(t) for t in tags) if tags else "—"
+    lines = [
+        "## Summary",
+        "",
+        summary.strip() or "—",
+        "",
+        "## Information sources",
+        "",
+    ]
+    if isinstance(sources, list) and sources:
+        shown_numbers: set = set()
+        for idx, src in enumerate(sources, start=1):
+            if not isinstance(src, dict):
+                continue
+            src_name = str(src.get("source", "document"))
+            src_loc = str(src.get("location", "n/a"))
+            src_excerpt = str(src.get("excerpt", "")).strip()
+            new_numbers = _new_supports(src, shown_numbers)
+            shown_numbers.update(new_numbers)
+            supports_line = _format_supports_line(new_numbers)
+            lines.append(f"{idx}. **{src_name}** ({src_loc})")
+            lines.append("")
+            if supports_line:
+                lines.append(f"   *{supports_line}*")
+                lines.append("")
+            lines.append(f"   {src_excerpt}")
+            lines.append("")
+    else:
+        lines.append("*No source attribution available.*")
+        lines.append("")
+
+    lines.extend(["## Numeric verification", ""])
+    claims = numeric_claims if isinstance(numeric_claims, list) else []
+    unmatched = unmatched_numbers if isinstance(unmatched_numbers, list) else []
+    if claims:
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            num = str(claim.get("number", "")).strip()
+            ids = claim.get("source_ids") or []
+            if ids:
+                lines.append(
+                    f"- **{num}** — source(s) {', '.join(str(i) for i in ids)}"
+                )
+            else:
+                lines.append(f"- **{num}** — *no matching source excerpt*")
+    else:
+        lines.append("*No numeric values detected in the summary.*")
+    if unmatched:
+        lines.append("")
+        lines.append(
+            "> Warning: the following summary numbers could not be matched "
+            "verbatim to any retrieved source excerpt: "
+            + ", ".join(str(n) for n in unmatched)
+        )
+    lines.append("")
+
+    lines.extend(
+        [
+            "## Keywords",
+            "",
+            kw,
+            "",
+            "## Tags",
+            "",
+            tg,
+            "",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_export_html(
+    summary: str,
+    sources: list,
+    keywords: list,
+    tags: list,
+    numeric_claims: list | None = None,
+    unmatched_numbers: list | None = None,
+) -> str:
+    h = html.escape
+    parts = [
+        "<!DOCTYPE html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        "<title>Summary export</title>",
+        "</head>",
+        "<body>",
+        "<h2>Summary</h2>",
+        "<p>" + h(summary).replace("\n", "<br>") + "</p>",
+        "<h2>Information sources</h2>",
+    ]
+    if isinstance(sources, list) and sources:
+        parts.append("<ol>")
+        shown_numbers: set = set()
+        for src in sources:
+            if not isinstance(src, dict):
+                continue
+            src_name = h(str(src.get("source", "document")))
+            src_loc = h(str(src.get("location", "n/a")))
+            src_excerpt = h(str(src.get("excerpt", "")).strip())
+            br_excerpt = src_excerpt.replace("\n", "<br>")
+            new_numbers = _new_supports(src, shown_numbers)
+            shown_numbers.update(new_numbers)
+            supports_line = _format_supports_line(new_numbers)
+            supports_html = (
+                f"<em>{h(supports_line)}</em><br>" if supports_line else ""
+            )
+            parts.append(
+                "<li><strong>"
+                f"{src_name}</strong> ({src_loc})<br>"
+                f"{supports_html}"
+                f"{br_excerpt}</li>"
+            )
+        parts.append("</ol>")
+    else:
+        parts.append("<p><em>No source attribution available.</em></p>")
+
+    parts.append("<h2>Numeric verification</h2>")
+    claims = numeric_claims if isinstance(numeric_claims, list) else []
+    unmatched = unmatched_numbers if isinstance(unmatched_numbers, list) else []
+    if claims:
+        parts.append("<ul>")
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            num = h(str(claim.get("number", "")).strip())
+            ids = claim.get("source_ids") or []
+            if ids:
+                ids_str = ", ".join(h(str(i)) for i in ids)
+                parts.append(f"<li><strong>{num}</strong> — source(s) {ids_str}</li>")
+            else:
+                parts.append(
+                    f"<li><strong>{num}</strong> — <em>no matching source excerpt</em></li>"
+                )
+        parts.append("</ul>")
+    else:
+        parts.append("<p><em>No numeric values detected in the summary.</em></p>")
+    if unmatched:
+        unmatched_str = ", ".join(h(str(n)) for n in unmatched)
+        parts.append(
+            "<p><strong>Warning:</strong> the following summary numbers could "
+            "not be matched verbatim to any retrieved source excerpt: "
+            f"{unmatched_str}</p>"
+        )
+
+    kw_items = "".join(f"<li>{h(str(k))}</li>" for k in keywords) if keywords else ""
+    tg_items = "".join(f"<li>{h(str(t))}</li>" for t in tags) if tags else ""
+    parts.extend(
+        [
+            "<h2>Keywords</h2>",
+            f"<ul>{kw_items}</ul>" if kw_items else "<p>—</p>",
+            "<h2>Tags</h2>",
+            f"<ul>{tg_items}</ul>" if tg_items else "<p>—</p>",
+            "</body>",
+            "</html>",
+        ]
+    )
+    return "\n".join(parts)
+
+
+def _build_export_json(
+    summary: str,
+    sources: list,
+    keywords: list,
+    tags: list,
+    numeric_claims: list | None = None,
+    unmatched_numbers: list | None = None,
+) -> str:
+    raw_sources = sources if isinstance(sources, list) else []
+    clean_sources = [s for s in raw_sources if isinstance(s, dict)]
+    raw_claims = numeric_claims if isinstance(numeric_claims, list) else []
+    clean_claims = [c for c in raw_claims if isinstance(c, dict)]
+    payload = {
+        "summary": summary,
+        "sources": clean_sources,
+        "keywords": list(keywords) if isinstance(keywords, list) else [],
+        "tags": list(tags) if isinstance(tags, list) else [],
+        "numeric_claims": clean_claims,
+        "unmatched_numbers": (
+            list(unmatched_numbers) if isinstance(unmatched_numbers, list) else []
+        ),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def build_download_export_content(fmt: str) -> str:
+    """Serialize LAST_SUMMARY_META snapshot for the chosen format."""
+    summary = str(LAST_SUMMARY_META.get("export_summary") or "")
+    sources = LAST_SUMMARY_META.get("export_sources") or []
+    keywords = LAST_SUMMARY_META.get("export_keywords") or []
+    tags = LAST_SUMMARY_META.get("export_tags") or []
+    numeric_claims = LAST_SUMMARY_META.get("export_numeric_claims") or []
+    unmatched_numbers = LAST_SUMMARY_META.get("export_unmatched_numbers") or []
+    if fmt == "plaintext":
+        return _build_export_plaintext(
+            summary, sources, keywords, tags, numeric_claims, unmatched_numbers
+        )
+    if fmt == "markdown":
+        return _build_export_markdown(
+            summary, sources, keywords, tags, numeric_claims, unmatched_numbers
+        )
+    if fmt == "html":
+        return _build_export_html(
+            summary, sources, keywords, tags, numeric_claims, unmatched_numbers
+        )
+    if fmt == "json":
+        return _build_export_json(
+            summary, sources, keywords, tags, numeric_claims, unmatched_numbers
+        )
+    return _build_export_plaintext(
+        summary, sources, keywords, tags, numeric_claims, unmatched_numbers
+    )
 
 
 SOURCE_DISPLAY = {
@@ -624,21 +959,41 @@ async def handle_summarize(
             result, dict) else str(result)
         summary_label.set_text(summary_text)
         sources = result.get("sources", []) if isinstance(result, dict) else []
+        unmatched_numbers = (
+            result.get("unmatched_numbers", []) if isinstance(result, dict) else []
+        )
+        numeric_claims = (
+            result.get("numeric_claims", []) if isinstance(result, dict) else []
+        )
         if isinstance(sources, list) and sources:
             rendered_sources = []
+            shown_numbers: set = set()
             for idx, src in enumerate(sources, start=1):
                 if not isinstance(src, dict):
                     continue
                 src_name = str(src.get("source", "document"))
                 src_loc = str(src.get("location", "n/a"))
                 src_excerpt = str(src.get("excerpt", "")).strip()
+                new_numbers = _new_supports(src, shown_numbers)
+                shown_numbers.update(new_numbers)
+                supports_line = (
+                    f"   verifies: {', '.join(new_numbers)}\n"
+                    if new_numbers
+                    else ""
+                )
                 rendered_sources.append(
-                    f"{idx}. {src_name} ({src_loc})\n{src_excerpt}"
+                    f"{idx}. {src_name} ({src_loc})\n{supports_line}{src_excerpt}"
                 )
             sources_text = "\n\n".join(
                 rendered_sources) if rendered_sources else "No source attribution available."
         else:
             sources_text = "No source attribution available."
+        if isinstance(unmatched_numbers, list) and unmatched_numbers:
+            sources_text += (
+                "\n\nWarning: numbers in the summary without a matching source "
+                "excerpt: "
+                + ", ".join(str(n) for n in unmatched_numbers)
+            )
         if sources_label is not None:
             sources_label.set_text(sources_text)
         keywords = (result.get("keywords", []) if isinstance(result, dict) else [])[
@@ -651,7 +1006,7 @@ async def handle_summarize(
         tags_label.set_text(", ".join(tags))
         LAST_SUMMARY_META["elapsed_s"] = elapsed_s
         LAST_SUMMARY_META["timing_breakdown"] = timing_sec
-        LAST_SUMMARY_META["download_filename"] = build_summary_download_filename(
+        LAST_SUMMARY_META["download_stem"] = build_summary_download_stem(
             max_words=int(max_words_input.value),
             max_keywords=int(max_keywords_input.value),
             max_tags=int(max_tags_input.value),
@@ -662,6 +1017,19 @@ async def handle_summarize(
             loader=str(loader_radio.value),
             llm_model=str(llm_model),
         )
+        LAST_SUMMARY_META["export_summary"] = summary_text
+        LAST_SUMMARY_META["export_sources"] = (
+            list(sources) if isinstance(sources, list) else []
+        )
+        LAST_SUMMARY_META["export_keywords"] = list(keywords)
+        LAST_SUMMARY_META["export_tags"] = list(tags)
+        LAST_SUMMARY_META["export_numeric_claims"] = (
+            list(numeric_claims) if isinstance(numeric_claims, list) else []
+        )
+        LAST_SUMMARY_META["export_unmatched_numbers"] = (
+            list(unmatched_numbers) if isinstance(unmatched_numbers, list) else []
+        )
+        LAST_SUMMARY_META["export_ready"] = True
         if status_label is not None:
             status_label.set_text(
                 format_done_status_line(elapsed_s, timing_sec))
@@ -687,6 +1055,7 @@ async def handle_summarize(
             error_msg = f"{error_msg} {auth_hint_ssp}"
         elif "401" in error_msg and "OpenAI" in error_msg:
             error_msg = f"{error_msg} {auth_hint_openai}"
+        LAST_SUMMARY_META["export_ready"] = False
         summary_label.set_text(f"❌ Error: {error_msg}")
         if sources_label is not None:
             sources_label.set_text("Error")
@@ -1598,6 +1967,7 @@ def main_page():
                 if tags_label is not None:
                     tags_label.set_text('Tags will appear here.')
                     tags_label.update()
+                LAST_SUMMARY_META["export_ready"] = False
                 status_label.set_text('Ready.')
                 status_label.update()
 
@@ -1676,25 +2046,46 @@ def main_page():
                 tags_label = ui.label(
                     'Tags will appear here.').classes('w-full')
 
+            with ui.card().classes('w-full p-4 bg-white border border-slate-100 shadow-sm'):
+                with ui.row().classes('w-full items-center gap-3 flex-wrap'):
+                    ui.icon('sym_o_download').classes(
+                        'text-2xl text-primary shrink-0 opacity-90'
+                    )
+                    with ui.column().classes('gap-1 flex-1 min-w-[12rem]'):
+                        ui.label('Download export').classes(
+                            'text-base font-medium text-slate-800'
+                        )
+                        ui.label(
+                            'Plain text, Markdown, HTML, or JSON — same sections as above.'
+                        ).classes('text-xs text-slate-500 leading-snug')
+                    export_format_select = ui.select(
+                        {
+                            'plaintext': 'Plain text (.txt)',
+                            'markdown': 'Markdown (.md)',
+                            'html': 'HTML (.html)',
+                            'json': 'JSON (.json)',
+                        },
+                        value='plaintext',
+                    ).props('dense outlined').classes(
+                        'w-full sm:w-auto min-w-[13rem]'
+                    )
+
         def download_summary_export():
-            ui.download.content(
-                f"""📄 Summary:
-        {summary_label.text}
-
-        📚 Information sources:
-        {sources_label.text}
-
-        🔑 Keywords:
-        {keywords_label.text}
-
-        🏷️ Tags:
-        {tags_label.text}
-        """,
-                LAST_SUMMARY_META["download_filename"],
-            )
+            if not LAST_SUMMARY_META.get('export_ready'):
+                ui.notify(
+                    'Run summarization successfully before downloading.',
+                    type='warning',
+                )
+                return
+            fmt = export_format_select.value or 'plaintext'
+            ext = _EXPORT_FORMAT_EXT.get(fmt, '.txt')
+            stem = LAST_SUMMARY_META.get('download_stem') or 'summary_full'
+            filename = f'{stem}{ext}'
+            body = build_download_export_content(fmt)
+            ui.download.content(body, filename)
 
         download_button = ui.button(
-            'Download Summary',
+            'Download export',
             on_click=download_summary_export,
         ).props('color=primary icon=sym_o_download').classes('w-full')
 
