@@ -14,16 +14,13 @@ load_dotenv(os.path.join(script_dir, '.env'), override=True)
 import warnings
 import time
 import re
-from typing import List, Dict, Optional, Union, Any, Tuple, Set
+from typing import List, Dict, Optional, Any, Tuple, Set
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
-from langchain_core.runnables import RunnablePassthrough
 from docling.document_converter import DocumentConverter
 from docling.chunking import HybridChunker
 from langchain_docling import DoclingLoader
@@ -33,15 +30,12 @@ from langchain_core.prompts import PromptTemplate
 from langchain_docling.loader import ExportType
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-#from langchain_openai import OpenAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
 import torch
 import logging
 import json
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from openai import AuthenticationError
-
-from langchain_core.embeddings import Embeddings
 import requests
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
@@ -130,6 +124,44 @@ warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
 # Configure logging - reduce verbosity
 logging.basicConfig(level=logging.WARNING)  # Changed from INFO to WARNING
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Module-level singletons
+#
+# These survive across run.io_bound calls (same process, thread pool) so heavy
+# models are loaded only once per application lifetime.
+#
+# _HF_EMBEDDING_CACHE  – caches model weights keyed by (model_name, device).
+#                        Stateless: converts text to vectors, never stores docs.
+# _DOCLING_CONVERTER   – the Docling PDF-parsing pipeline, also stateless.
+#
+# Document embeddings themselves live in a per-run, uniquely-named, in-memory
+# ChromaDB collection that is explicitly deleted after every summarisation call
+# so no document data leaks into the next run.
+# ---------------------------------------------------------------------------
+_HF_EMBEDDING_CACHE: Dict[tuple, Any] = {}
+_DOCLING_CONVERTER_INSTANCE: Any = None
+
+
+def _get_hf_embedding(model_name: str, device: str) -> Any:
+    """Return a cached HuggingFaceEmbeddings instance (loaded once per model+device pair)."""
+    key = (model_name, device)
+    if key not in _HF_EMBEDDING_CACHE:
+        _HF_EMBEDDING_CACHE[key] = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs={"device": device},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+    return _HF_EMBEDDING_CACHE[key]
+
+
+def _get_docling_converter() -> Any:
+    """Return the module-level DocumentConverter singleton (created once per process)."""
+    global _DOCLING_CONVERTER_INSTANCE
+    if _DOCLING_CONVERTER_INSTANCE is None:
+        _DOCLING_CONVERTER_INSTANCE = DocumentConverter()
+    return _DOCLING_CONVERTER_INSTANCE
 
 
 # Fallback lists when model discovery fails or keys are missing (UI still offers a choice).
@@ -529,32 +561,6 @@ def timed_execution(message_template: str = None):
             return result
         return wrapper
     return decorator
-
-
-def execute_with_timing(func, message: str = None, *args, **kwargs):
-    """
-    Execute a function with timing and custom message.
-    
-    Args:
-        func: Function to execute
-        message (str): Custom message to print before execution
-        *args, **kwargs: Arguments to pass to the function
-    
-    Returns:
-        The result of the function execution
-    """
-    # Use custom message or function name
-    display_message = message or f"Executing {func.__name__}"
-    print(f"{display_message}")
-    
-    # Time the execution
-    start_time = time.time()
-    result = func(*args, **kwargs)
-    execution_time = time.time() - start_time
-    
-    # Print timing
-    print(f"⏱️ Execution time: {execution_time:.2f} seconds")
-    return result
 
 
 class PDFSummarizer:
@@ -1152,8 +1158,10 @@ class PDFSummarizer:
             timing["chunks"] = time.perf_counter() - t0
 
             t1 = time.perf_counter()
+            # Each call gets a fresh, isolated in-memory collection (unique name).
+            # The embedding model itself is stateless and safely reused via the module cache.
             vector_store = self._get_vector_store(chunks, embedding_model, use_remote_embedding)
-            retriever = vector_store.as_retriever(search_kwargs={"k": 10})  # Increased from 5 to 10
+            retriever = vector_store.as_retriever(search_kwargs={"k": 10})
             retrieval_chain = self._create_retrieval_chain(retriever)
             timing["vector_store"] = time.perf_counter() - t1
 
@@ -1172,6 +1180,14 @@ class PDFSummarizer:
             except Exception as exc:
                 # Some wrappers may rethrow auth as generic exceptions.
                 self._raise_with_auth_guidance(exc)
+            finally:
+                # Explicitly drop this document's embeddings from memory so they cannot
+                # contaminate the next run, regardless of success or failure.
+                try:
+                    vector_store.delete_collection()
+                except Exception:
+                    pass
+
             out = result.get("answer", result)
             if isinstance(out, dict):
                 summary_text = (
@@ -1254,7 +1270,7 @@ class PDFSummarizer:
     def _docling_plain_text_sync(self, pdf_path: str) -> str:
         """Full Docling conversion + text extraction (runs in worker thread when timed out)."""
         with self._suppress_logging():
-            docling_converter = DocumentConverter()
+            docling_converter = _get_docling_converter()
             result = docling_converter.convert(pdf_path)
 
         text_content = []
@@ -1293,6 +1309,7 @@ class PDFSummarizer:
             loader = DoclingLoader(
                 file_path=pdf_path,
                 export_type=export_type,
+                converter=_get_docling_converter(),
                 chunker=HybridChunker(tokenizer=sentence_transformer_model),
             )
 
@@ -1336,42 +1353,42 @@ class PDFSummarizer:
     def _get_vector_store(self, splits: List[str], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True) -> str:
         """
         Create vector store with local or remote embeddings.
-        
-        Args:
-            splits: Document chunks
-            embedding_model: Model name for embeddings
-            use_remote_embedding: If True, use remote embedding service
+
+        Remote embedding uses the SSP OpenAI-compatible /v1/embeddings endpoint.
+        If it is unavailable (503, 500, etc.) the call raises a descriptive
+        RuntimeError telling the user to switch to Local embedding instead.
         """
         if use_remote_embedding:
-            remote_model = "qwen3-embedding:8b"
-
-            print(f"🔧 Remote embedding with model: {remote_model} at SSP")
-            
-            #Configure for SSP's embedding service
-            embedding = OllamaEmbeddings(
+            from langchain_openai import OpenAIEmbeddings
+            remote_model = "qwen3-embedding-8b"
+            print(f"🔧 Remote embedding with model: {remote_model} at SSP (OpenAI-compatible endpoint)")
+            embedding = OpenAIEmbeddings(
                 model=remote_model,
-                base_url="http://llm.lab.sspcloud.fr/ollama",
-                client_kwargs={'headers': {
-                    "Authorization": f"Bearer {os.getenv('SSP_KEY')}"
-                }}
+                openai_api_key=os.getenv('SSP_KEY'),
+                openai_api_base="https://llm.lab.sspcloud.fr/api/v1",
             )
-
         else:
-            # Use local embedding
-            print(f"🔧 Local embedding with model: {embedding_model}")
-
-            embedding = HuggingFaceEmbeddings(
-                model_name=embedding_model,
-                model_kwargs={"device": "cuda" if torch.cuda.is_available() else "cpu"},
-                encode_kwargs={"normalize_embeddings": True}  # recommended for BGE
-            )
+            # Use local embedding — model weights are cached at module level after first load.
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"🔧 Local embedding with model: {embedding_model} (device: {device})")
+            embedding = _get_hf_embedding(embedding_model, device)
 
         # Use an isolated in-memory collection per run to avoid cross-document pollution.
-        vector_store = Chroma.from_documents(
-            collection_name=f"run_{time.time_ns()}",
-            documents=splits,
-            embedding=embedding,
-        )
+        try:
+            vector_store = Chroma.from_documents(
+                collection_name=f"run_{time.time_ns()}",
+                documents=splits,
+                embedding=embedding,
+            )
+        except Exception as exc:
+            if use_remote_embedding:
+                raise RuntimeError(
+                    "Remote embedding failed — the SSP Cloud embedding endpoint is not "
+                    "available or does not support this model. "
+                    "Open 'Summarizer configuration', switch Embeddings to 'Local embedding' "
+                    "(BAAI/bge-m3), and run again."
+                ) from exc
+            raise
         return vector_store
 
     def _load_pdf_with_pypdf(self, pdf_path: str) -> str:

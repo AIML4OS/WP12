@@ -6,8 +6,7 @@ import asyncio
 import tempfile
 import base64
 import time
-from nicegui import ui, app, run
-from starlette.datastructures import UploadFile
+from nicegui import ui, run
 from summarizer_unified import (
     PDFSummarizer,
     DEFAULT_LLM_MODELS_FALLBACK,
@@ -37,15 +36,13 @@ summarize_actions_container = None
 summarize_button = None
 restart_button = None
 clear_selection_button = None
+change_file_hint_label = None
 summarizer_customize_button = None
 parameters_customize_button = None
 summarizer_config_summary_panel_ref = None
 summarizer_config_editor_panel_ref = None
 parameters_summary_panel_ref = None
 parameters_editor_panel_ref = None
-summary_text = ""
-sources_text = ""
-
 file_card_container = None
 summarizer_config_card_container = None
 parameters_card_container = None
@@ -162,6 +159,54 @@ def _format_supports_line(new_numbers: list) -> str:
     if not new_numbers:
         return ""
     return "verifies: " + ", ".join(new_numbers)
+
+
+def _sources_block_html(sources: list) -> str:
+    """Render sources as styled HTML for the UI panel."""
+    if not isinstance(sources, list) or not sources:
+        return '<p class="text-sm text-gray-400 italic">No source attribution available.</p>'
+    parts = []
+    shown_numbers: set = set()
+    for idx, src in enumerate(sources, start=1):
+        if not isinstance(src, dict):
+            continue
+        src_name = html.escape(str(src.get("source", "document")))
+        src_loc = html.escape(str(src.get("location", "n/a")))
+        src_excerpt = html.escape(str(src.get("excerpt", "")).strip())
+        new_numbers = _new_supports(src, shown_numbers)
+        shown_numbers.update(new_numbers)
+
+        header = (
+            f'<div class="text-sm text-gray-400 font-mono">'
+            f'{idx}. {src_name} ({src_loc})'
+            f'</div>'
+        )
+
+        if new_numbers:
+            years_html = html.escape(", ".join(new_numbers))
+            verifies_line = (
+                f'<div class="text-base mt-0.5">'
+                f'<span class="font-semibold" style="color: var(--q-primary)">verifies:</span>'
+                f'<span class="text-gray-600 ml-1">{years_html}</span>'
+                f'</div>'
+            )
+        else:
+            verifies_line = ""
+
+        excerpt_html = (
+            f'<div class="text-base leading-relaxed mt-1 text-gray-800">{src_excerpt}</div>'
+            if src_excerpt
+            else ""
+        )
+
+        parts.append(
+            f'<div class="mb-6">{header}{verifies_line}{excerpt_html}</div>'
+        )
+    return (
+        '<div>' + "".join(parts) + "</div>"
+        if parts
+        else '<p class="text-base text-gray-400 italic">No source attribution available.</p>'
+    )
 
 
 def _sources_block_plain(sources: list) -> str:
@@ -483,7 +528,7 @@ def update_summarize_actions_visibility():
     summarize_actions_container.update()
     if restart_button is not None:
         restart_button.set_visibility(
-            has_pdf_source_selected()
+            actions_visible
             and not UI_STATE.get("processing", False)
             and UI_STATE.get("process_completed", False)
         )
@@ -516,6 +561,13 @@ def update_summarize_actions_visibility():
         summarize_button.update()
 
 
+def invalidate_result() -> None:
+    """Mark any previous result as stale so the Summarize button reappears."""
+    if UI_STATE.get("process_completed", False) and not UI_STATE.get("processing", False):
+        UI_STATE["process_completed"] = False
+        update_summarize_actions_visibility()
+
+
 def set_processing_ui_locked(locked: bool) -> None:
     """Keep page visible; close editors and lock action controls while processing."""
     UI_STATE["processing"] = locked
@@ -541,6 +593,9 @@ def set_processing_ui_locked(locked: bool) -> None:
     if clear_selection_button is not None:
         clear_selection_button.set_visibility(controls_visible)
         clear_selection_button.update()
+    if change_file_hint_label is not None:
+        change_file_hint_label.set_visibility(controls_visible)
+        change_file_hint_label.update()
     if summarizer_customize_button is not None:
         summarizer_customize_button.set_visibility(controls_visible)
         summarizer_customize_button.update()
@@ -626,27 +681,6 @@ def current_ollama_ine_base_url() -> str:
     return "https://ollama.ine.pt"
 
 
-def cpu_bound_probe_ollama(preferred_base_url):
-    """
-    Top-level wrapper for NiceGUI ``run.cpu_bound`` (nested closures are not picklable).
-    """
-    return probe_ollama_runtime(preferred_base_url)
-
-
-def cpu_bound_probe_ollama_ine(base_url):
-    """Top-level wrapper for NiceGUI ``run.cpu_bound``."""
-    return probe_specific_ollama_runtime(base_url)
-
-
-def cpu_bound_fetch_llm_models(prov: str, api_key, ollama_base_url: str):
-    """Top-level wrapper for NiceGUI ``run.cpu_bound``."""
-    return fetch_llm_models_for_provider(
-        prov,
-        api_key=api_key,
-        ollama_base_url=ollama_base_url,
-    )
-
-
 def run_summarization(
     file_path,
     source_display_name,
@@ -661,6 +695,12 @@ def run_summarization(
     llm_model,
     ollama_base_url,
 ):
+    # Re-read .env on every call so key changes take effect without a restart.
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'),
+        override=True,
+    )
     lp = (llm_provider or "ssp").lower().strip()
     lc = {"temperature": 0.1}
     if lp == "ssp":
@@ -851,7 +891,7 @@ async def handle_summarize(
     llm_model_select,
     status_label,
 ):
-    global summary_label, sources_label, keywords_label, tags_label, results_container, download_button, summary_text, sources_text
+    global summary_label, sources_label, keywords_label, tags_label, results_container, download_button
 
     UI_STATE["process_completed"] = False
     set_processing_ui_locked(True)
@@ -928,7 +968,7 @@ async def handle_summarize(
         embed_choice = embedding_radio.value if use_vector else None
 
         t0 = time.perf_counter()
-        result = await run.cpu_bound(
+        result = await run.io_bound(
             run_summarization,
             source_file_path,
             selected_file_info.get('name') or '',
@@ -965,37 +1005,16 @@ async def handle_summarize(
         numeric_claims = (
             result.get("numeric_claims", []) if isinstance(result, dict) else []
         )
-        if isinstance(sources, list) and sources:
-            rendered_sources = []
-            shown_numbers: set = set()
-            for idx, src in enumerate(sources, start=1):
-                if not isinstance(src, dict):
-                    continue
-                src_name = str(src.get("source", "document"))
-                src_loc = str(src.get("location", "n/a"))
-                src_excerpt = str(src.get("excerpt", "")).strip()
-                new_numbers = _new_supports(src, shown_numbers)
-                shown_numbers.update(new_numbers)
-                supports_line = (
-                    f"   verifies: {', '.join(new_numbers)}\n"
-                    if new_numbers
-                    else ""
-                )
-                rendered_sources.append(
-                    f"{idx}. {src_name} ({src_loc})\n{supports_line}{src_excerpt}"
-                )
-            sources_text = "\n\n".join(
-                rendered_sources) if rendered_sources else "No source attribution available."
-        else:
-            sources_text = "No source attribution available."
+        sources_html = _sources_block_html(sources)
         if isinstance(unmatched_numbers, list) and unmatched_numbers:
-            sources_text += (
-                "\n\nWarning: numbers in the summary without a matching source "
-                "excerpt: "
-                + ", ".join(str(n) for n in unmatched_numbers)
+            escaped_nums = html.escape(", ".join(str(n) for n in unmatched_numbers))
+            sources_html += (
+                '<p class="text-xs text-red-500 mt-2">'
+                f'Warning: numbers in the summary without a matching source excerpt: {escaped_nums}'
+                '</p>'
             )
         if sources_label is not None:
-            sources_label.set_text(sources_text)
+            sources_label.set_content(sources_html)
         keywords = (result.get("keywords", []) if isinstance(result, dict) else [])[
             : int(max_keywords_input.value)
         ]
@@ -1055,10 +1074,15 @@ async def handle_summarize(
             error_msg = f"{error_msg} {auth_hint_ssp}"
         elif "401" in error_msg and "OpenAI" in error_msg:
             error_msg = f"{error_msg} {auth_hint_openai}"
+        elif "Ollama API is disabled" in error_msg or ("503" in error_msg and "sspcloud" in error_msg.lower()):
+            error_msg = (
+                "Remote embedding failed: the SSP Cloud Ollama API endpoint is disabled. "
+                "Switch to Local embedding in the Summarizer configuration, or check SSP Cloud access."
+            )
         LAST_SUMMARY_META["export_ready"] = False
         summary_label.set_text(f"❌ Error: {error_msg}")
         if sources_label is not None:
-            sources_label.set_text("Error")
+            sources_label.set_content('<p class="text-sm text-red-400 italic">Error</p>')
         keywords_label.set_text("Error")
         tags_label.set_text("Error")
         summary_label.update()
@@ -1085,7 +1109,7 @@ def main_page():
     global file_picker_container, selected_file_container
     global selected_file_name_label, selected_file_size_label, selected_file_source_label, selected_file_thumbnail
     global pdf_upload_component, summarize_actions_container, summarize_button, restart_button
-    global clear_selection_button, summarizer_customize_button, parameters_customize_button
+    global clear_selection_button, change_file_hint_label, summarizer_customize_button, parameters_customize_button
     global summarizer_config_summary_panel_ref, summarizer_config_editor_panel_ref
     global parameters_summary_panel_ref, parameters_editor_panel_ref
     global file_card_container, summarizer_config_card_container, parameters_card_container
@@ -1120,7 +1144,7 @@ def main_page():
     box-shadow: none !important;
     background: rgba(255, 255, 255, 0.35) !important;
     border-radius: 0.875rem !important;
-    border: 1px dashed rgba(148, 163, 184, 0.9) !important;
+    border: none !important;
   }
 
   /* Summarizer configuration: title line vs description line in radio labels */
@@ -1275,7 +1299,7 @@ def main_page():
                                 selected_file_source_label = ui.label('').classes(
                                     'text-xs text-gray-400'
                                 )
-                            ui.label('Change file anytime with Clear selection.').classes(
+                            change_file_hint_label = ui.label('Change file anytime with Clear selection.').classes(
                                 'text-xs text-gray-400 text-right max-w-[14rem] leading-tight flex-shrink-0'
                             )
 
@@ -1399,6 +1423,13 @@ def main_page():
                         async def refresh_llm_models_for_provider(prov: str, *, notify: bool = True):
                             base_url = _current_ollama_base_for_provider(prov)
 
+                            # Re-read .env so key changes take effect without a restart.
+                            from dotenv import load_dotenv as _load_dotenv
+                            _load_dotenv(
+                                os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'),
+                                override=True,
+                            )
+
                             ak = None
                             if prov == 'openai':
                                 ak = os.getenv('OPENAI_API_KEY')
@@ -1406,11 +1437,11 @@ def main_page():
                                 ak = os.getenv('SSP_KEY')
 
                             try:
-                                models = await run.cpu_bound(
-                                    cpu_bound_fetch_llm_models,
+                                models = await run.io_bound(
+                                    fetch_llm_models_for_provider,
                                     prov,
-                                    ak,
-                                    base_url,
+                                    api_key=ak,
+                                    ollama_base_url=base_url,
                                 )
                                 if not models:
                                     models = DEFAULT_LLM_MODELS_FALLBACK.get(
@@ -1445,10 +1476,8 @@ def main_page():
                             ollama_status_label.classes(
                                 'text-xs text-slate-600 leading-snug')
 
-                            hint = user_hint
-
                             try:
-                                result = await run.cpu_bound(cpu_bound_probe_ollama, hint)
+                                result = await run.io_bound(probe_ollama_runtime, user_hint)
                             except Exception as ex:
                                 result = {
                                     'ok': False,
@@ -1499,8 +1528,8 @@ def main_page():
                             ollama_ine_status_label.classes(
                                 'text-xs text-slate-600 leading-snug')
                             try:
-                                result = await run.cpu_bound(
-                                    cpu_bound_probe_ollama_ine, 'https://ollama.ine.pt'
+                                result = await run.io_bound(
+                                    probe_specific_ollama_runtime, 'https://ollama.ine.pt'
                                 )
                             except Exception as ex:
                                 result = {
@@ -1635,7 +1664,7 @@ def main_page():
                                     ),
                                     'remote': (
                                         'Remote embedding\n'
-                                        'qwen3-embedding:8b via the SSP Ollama embedding endpoint.'
+                                        'qwen3-embedding-8b via the SSP embedding endpoint.'
                                     ),
                                 },
                                 value='local',
@@ -1697,7 +1726,7 @@ def main_page():
                         emb_txt = (
                             'Local (BAAI/bge-m3)'
                             if embedding_radio.value == 'local'
-                            else 'Remote (qwen3-embedding:8b)'
+                            else 'Remote (qwen3-embedding-8b)'
                         )
                         summarizer_summary_embeddings_label.set_text(
                             f'Embeddings: {emb_txt}')
@@ -1712,61 +1741,39 @@ def main_page():
                     refresh_summarizer_summary()
 
                 processing_mode.on_value_change(
-                    lambda _: _sync_mode_and_summary())
+                    lambda _: (_sync_mode_and_summary(), invalidate_result()))
 
                 def _apply_llm_fallback_models():
                     prov = provider_select.value
-                    if prov == 'ollama' and OLLAMA_PROBE_STATE.get('ok'):
-                        models = OLLAMA_PROBE_STATE.get('models') or []
-                        if not models:
-                            models = list(
-                                DEFAULT_LLM_MODELS_FALLBACK['ollama'])
-                        llm_model_select.options = models
-                        llm_model_select.value = models[0]
-                        llm_model_select.update()
-                        return
-                    if prov == 'ollama_ine' and OLLAMA_INE_PROBE_STATE.get('ok'):
-                        models = OLLAMA_INE_PROBE_STATE.get('models') or []
-                        if not models:
-                            models = list(
-                                DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
-                        llm_model_select.options = models
-                        llm_model_select.value = models[0]
-                        llm_model_select.update()
-                        return
-                    if prov == 'ollama':
-                        fb = list(DEFAULT_LLM_MODELS_FALLBACK['ollama'])
-                        llm_model_select.options = fb
-                        llm_model_select.value = fb[0]
-                        llm_model_select.update()
-                        return
-                    if prov == 'ollama_ine':
-                        fb = list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
-                        llm_model_select.options = fb
-                        llm_model_select.value = fb[0]
-                        llm_model_select.update()
-                        return
-                    fb = DEFAULT_LLM_MODELS_FALLBACK.get(
-                        prov, DEFAULT_LLM_MODELS_FALLBACK['ssp'])
-                    llm_model_select.options = fb
-                    llm_model_select.value = fb[0]
+                    probe_state = (
+                        OLLAMA_PROBE_STATE if prov == 'ollama' else
+                        OLLAMA_INE_PROBE_STATE if prov == 'ollama_ine' else
+                        None
+                    )
+                    if probe_state and probe_state.get('ok'):
+                        models = probe_state.get('models') or list(DEFAULT_LLM_MODELS_FALLBACK[prov])
+                    else:
+                        models = list(DEFAULT_LLM_MODELS_FALLBACK.get(prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']))
+                    llm_model_select.options = models
+                    llm_model_select.value = models[0] if models else None
                     llm_model_select.update()
 
                 def _on_llm_provider_changed():
                     _apply_llm_fallback_models()
                     refresh_summarizer_summary()
+                    invalidate_result()
 
                 provider_select.on_value_change(
                     lambda _: _on_llm_provider_changed())
 
                 llm_model_select.on_value_change(
-                    lambda _: refresh_summarizer_summary())
+                    lambda _: (refresh_summarizer_summary(), invalidate_result()))
 
                 loader_radio.on_value_change(
-                    lambda _: refresh_summarizer_summary())
+                    lambda _: (refresh_summarizer_summary(), invalidate_result()))
 
                 embedding_radio.on_value_change(
-                    lambda _: refresh_summarizer_summary())
+                    lambda _: (refresh_summarizer_summary(), invalidate_result()))
 
                 def open_summarizer_editor():
                     summarizer_config_summary_panel.set_visibility(False)
@@ -1927,13 +1934,13 @@ def main_page():
             refresh_parameters_summary()
 
             max_words_input.on_value_change(
-                lambda _: refresh_parameters_summary())
+                lambda _: (refresh_parameters_summary(), invalidate_result()))
             max_keywords_input.on_value_change(
-                lambda _: refresh_parameters_summary())
+                lambda _: (refresh_parameters_summary(), invalidate_result()))
             max_tags_input.on_value_change(
-                lambda _: refresh_parameters_summary())
+                lambda _: (refresh_parameters_summary(), invalidate_result()))
             out_lang_input.on_value_change(
-                lambda _: refresh_parameters_summary())
+                lambda _: (refresh_parameters_summary(), invalidate_result()))
 
         with ui.column().classes('w-full gap-2') as summarize_actions_container:
             status_label = ui.label('Ready.').classes(
@@ -1958,8 +1965,8 @@ def main_page():
                     summary_label.set_text('Summary will appear here.')
                     summary_label.update()
                 if sources_label is not None:
-                    sources_label.set_text(
-                        'Information sources will appear here.')
+                    sources_label.set_content(
+                        '<p class="text-sm text-gray-400 italic">Information sources will appear here.</p>')
                     sources_label.update()
                 if keywords_label is not None:
                     keywords_label.set_text('Keywords will appear here.')
@@ -2026,8 +2033,8 @@ def main_page():
                         'text-2xl text-primary shrink-0 opacity-90')
                     ui.label('Information sources').classes(
                         'text-xl font-medium')
-                sources_label = ui.label('Information sources will appear here.').classes(
-                    'w-full whitespace-pre-wrap text-sm leading-relaxed'
+                sources_label = ui.html('<p class="text-sm text-gray-400 italic">Information sources will appear here.</p>').classes(
+                    'w-full'
                 )
 
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):
