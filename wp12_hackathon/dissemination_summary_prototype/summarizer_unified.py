@@ -1134,7 +1134,7 @@ class PDFSummarizer:
         raise exc
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}")
-    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None):
+    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
         """
         Process a PDF file and return a summary.
         """
@@ -1145,9 +1145,14 @@ class PDFSummarizer:
         # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
         # - 5 - return the summary
 
+        def _check_cancel():
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Cancelled.")
+
         timing: Dict[str, float] = {}
 
         if use_vector_store:
+            print(f"⏳ Step 1/4 — Loading and chunking PDF ({document_loader})...")
             t0 = time.perf_counter()
             if document_loader == "docling":
                 chunks = self._load_pdf_with_docling(pdf_path)
@@ -1156,7 +1161,10 @@ class PDFSummarizer:
             else:
                 raise ValueError(f"Unsupported document loader: {document_loader}")
             timing["chunks"] = time.perf_counter() - t0
+            print(f"   ✓ {len(chunks)} chunks in {timing['chunks']:.1f}s")
+            _check_cancel()
 
+            print(f"⏳ Step 2/4 — Building vector store (embedding: {'remote' if use_remote_embedding else embedding_model})...")
             t1 = time.perf_counter()
             # Each call gets a fresh, isolated in-memory collection (unique name).
             # The embedding model itself is stateless and safely reused via the module cache.
@@ -1164,7 +1172,10 @@ class PDFSummarizer:
             retriever = vector_store.as_retriever(search_kwargs={"k": 10})
             retrieval_chain = self._create_retrieval_chain(retriever)
             timing["vector_store"] = time.perf_counter() - t1
+            print(f"   ✓ Vector store ready in {timing['vector_store']:.1f}s")
+            _check_cancel()
 
+            print("⏳ Step 3/4 — Generating summary with LLM...")
             try:
                 t2 = time.perf_counter()
                 result = retrieval_chain.invoke({
@@ -1175,6 +1186,7 @@ class PDFSummarizer:
                     "out_lang": out_lang
                 })
                 timing["llm"] = time.perf_counter() - t2
+                print(f"   ✓ Summary generated in {timing['llm']:.1f}s")
             except AuthenticationError as exc:
                 self._raise_with_auth_guidance(exc)
             except Exception as exc:
@@ -1188,6 +1200,7 @@ class PDFSummarizer:
                 except Exception:
                     pass
 
+            print("⏳ Step 4/4 — Extracting sources and numeric claims...")
             out = result.get("answer", result)
             if isinstance(out, dict):
                 summary_text = (
@@ -1209,6 +1222,7 @@ class PDFSummarizer:
             return _attach_timing_breakdown(out, timing)
 
         else:
+            print(f"⏳ Step 1/3 — Loading PDF ({document_loader})...")
             context = "\n\n=== Document Section ===\n\n"
             t0 = time.perf_counter()
             if document_loader == "docling":
@@ -1220,9 +1234,12 @@ class PDFSummarizer:
             else:
                 raise ValueError(f"Unsupported document loader: {document_loader}")
             timing["pdf_load"] = time.perf_counter() - t0
+            print(f"   ✓ PDF loaded in {timing['pdf_load']:.1f}s")
+            _check_cancel()
 
             chain = self._create_summary_chain()
 
+            print("⏳ Step 2/3 — Generating summary with LLM...")
             try:
                 t1 = time.perf_counter()
                 result = chain.invoke({
@@ -1233,12 +1250,14 @@ class PDFSummarizer:
                     "out_lang": out_lang
                 })
                 timing["llm"] = time.perf_counter() - t1
+                print(f"   ✓ Summary generated in {timing['llm']:.1f}s")
             except AuthenticationError as exc:
                 self._raise_with_auth_guidance(exc)
             except Exception as exc:
                 # Some wrappers may rethrow auth as generic exceptions.
                 self._raise_with_auth_guidance(exc)
 
+            print("⏳ Step 3/3 — Extracting sources and numeric claims...")
             if isinstance(result, dict):
                 summary_text = (
                     result.get("summary", "")
@@ -1369,7 +1388,12 @@ class PDFSummarizer:
             )
         else:
             # Use local embedding — model weights are cached at module level after first load.
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
             print(f"🔧 Local embedding with model: {embedding_model} (device: {device})")
             embedding = _get_hf_embedding(embedding_model, device)
 

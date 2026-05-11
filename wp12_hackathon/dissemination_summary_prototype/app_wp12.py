@@ -1,4 +1,5 @@
 import os
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 import re
 import json
 import html
@@ -6,6 +7,9 @@ import asyncio
 import tempfile
 import base64
 import time
+import queue
+import sys
+import threading
 from nicegui import ui, run
 from summarizer_unified import (
     PDFSummarizer,
@@ -15,6 +19,35 @@ from summarizer_unified import (
     probe_specific_ollama_runtime,
 )
 from nicegui.events import UploadEventArguments
+
+
+class _StdoutTee:
+    """Forwards stdout writes to the real stdout AND a SimpleQueue for UI polling.
+
+    Lines are buffered until a newline is received, then emitted as complete
+    stripped strings. Blank lines are discarded. Thread-safe via SimpleQueue.
+    """
+    def __init__(self, real_stdout, q: queue.SimpleQueue):
+        self._real = real_stdout
+        self._q = q
+        self._buf = ""
+
+    def write(self, text: str) -> int:
+        self._real.write(text)
+        self._buf += text
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            stripped = line.strip()
+            if stripped:
+                self._q.put(stripped)
+        return len(text)
+
+    def flush(self):
+        self._real.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
 
 uploaded_file = {}
 selected_demo_file = {'path': None}
@@ -35,6 +68,7 @@ pdf_upload_component = None
 summarize_actions_container = None
 summarize_button = None
 restart_button = None
+abort_button = None
 clear_selection_button = None
 change_file_hint_label = None
 summarizer_customize_button = None
@@ -589,6 +623,10 @@ def set_processing_ui_locked(locked: bool) -> None:
             parameters_summary_panel_ref.update()
             UI_STATE["parameters_editor_open"] = False
 
+    if abort_button is not None:
+        abort_button.set_visibility(locked)
+        abort_button.update()
+
     controls_visible = not locked
     if clear_selection_button is not None:
         clear_selection_button.set_visibility(controls_visible)
@@ -694,6 +732,7 @@ def run_summarization(
     llm_provider,
     llm_model,
     ollama_base_url,
+    cancel_event=None,
 ):
     # Re-read .env on every call so key changes take effect without a restart.
     from dotenv import load_dotenv as _load_dotenv
@@ -737,6 +776,7 @@ def run_summarization(
         max_words=max_words,
         out_lang=out_lang,
         display_source_name=source_display_name,
+        cancel_event=cancel_event,
     )
 
 
@@ -905,6 +945,11 @@ async def handle_summarize(
         download_button.update()
     temp_file_path = None
     source_file_path = None
+    _progress_q: queue.SimpleQueue = queue.SimpleQueue()
+    _progress_timer = None
+    _real_stdout = None
+    _cancel_event = threading.Event()
+    UI_STATE["cancel_event"] = _cancel_event
 
     try:
         if 'file' in uploaded_file and uploaded_file['file'] is not None:
@@ -967,6 +1012,17 @@ async def handle_summarize(
         proc_mode = processing_mode_radio.value
         embed_choice = embedding_radio.value if use_vector else None
 
+        def _poll_progress() -> None:
+            while not _progress_q.empty():
+                msg = _progress_q.get_nowait()
+                if status_label is not None:
+                    status_label.set_text(msg)
+                    status_label.update()
+
+        _real_stdout = sys.stdout
+        sys.stdout = _StdoutTee(_real_stdout, _progress_q)
+        _progress_timer = ui.timer(0.3, _poll_progress)
+
         t0 = time.perf_counter()
         result = await run.io_bound(
             run_summarization,
@@ -990,6 +1046,7 @@ async def handle_summarize(
                     else ''
                 )
             ),
+            _cancel_event,
         )
         elapsed_s = time.perf_counter() - t0
 
@@ -1009,7 +1066,7 @@ async def handle_summarize(
         if isinstance(unmatched_numbers, list) and unmatched_numbers:
             escaped_nums = html.escape(", ".join(str(n) for n in unmatched_numbers))
             sources_html += (
-                '<p class="text-xs text-red-500 mt-2">'
+                '<p class="text-sm font-semibold text-red-500 mt-2">'
                 f'Warning: numbers in the summary without a matching source excerpt: {escaped_nums}'
                 '</p>'
             )
@@ -1068,35 +1125,47 @@ async def handle_summarize(
 
     except Exception as e:
         error_msg = str(e)
-        auth_hint_ssp = "Please update `SSP_KEY` in `.env` with a valid token and restart the app."
-        auth_hint_openai = "Please set a valid `OPENAI_API_KEY` in `.env`."
-        if "Authentication with SSP LLM failed (401)" in error_msg or "SSP LLM returned 401" in error_msg:
-            error_msg = f"{error_msg} {auth_hint_ssp}"
-        elif "401" in error_msg and "OpenAI" in error_msg:
-            error_msg = f"{error_msg} {auth_hint_openai}"
-        elif "Ollama API is disabled" in error_msg or ("503" in error_msg and "sspcloud" in error_msg.lower()):
-            error_msg = (
-                "Remote embedding failed: the SSP Cloud Ollama API endpoint is disabled. "
-                "Switch to Local embedding in the Summarizer configuration, or check SSP Cloud access."
-            )
-        LAST_SUMMARY_META["export_ready"] = False
-        summary_label.set_text(f"❌ Error: {error_msg}")
-        if sources_label is not None:
-            sources_label.set_content('<p class="text-sm text-red-400 italic">Error</p>')
-        keywords_label.set_text("Error")
-        tags_label.set_text("Error")
-        summary_label.update()
-        if sources_label is not None:
-            sources_label.update()
-        keywords_label.update()
-        tags_label.update()
-        UI_STATE["process_completed"] = True
-        if status_label is not None:
-            status_label.set_text('Failed')
-            status_label.update()
-        ui.notify(f"Summarization error: {error_msg}", type='negative')
+        if error_msg == "Cancelled.":
+            LAST_SUMMARY_META["export_ready"] = False
+            UI_STATE["process_completed"] = False
+            if status_label is not None:
+                status_label.set_text('Aborted.')
+                status_label.update()
+            ui.notify("Processing aborted.", type='warning')
+        else:
+            auth_hint_ssp = "Please update `SSP_KEY` in `.env` with a valid token and restart the app."
+            auth_hint_openai = "Please set a valid `OPENAI_API_KEY` in `.env`."
+            if "Authentication with SSP LLM failed (401)" in error_msg or "SSP LLM returned 401" in error_msg:
+                error_msg = f"{error_msg} {auth_hint_ssp}"
+            elif "401" in error_msg and "OpenAI" in error_msg:
+                error_msg = f"{error_msg} {auth_hint_openai}"
+            elif "Ollama API is disabled" in error_msg or ("503" in error_msg and "sspcloud" in error_msg.lower()):
+                error_msg = (
+                    "Remote embedding failed: the SSP Cloud Ollama API endpoint is disabled. "
+                    "Switch to Local embedding in the Summarizer configuration, or check SSP Cloud access."
+                )
+            LAST_SUMMARY_META["export_ready"] = False
+            summary_label.set_text(f"❌ Error: {error_msg}")
+            if sources_label is not None:
+                sources_label.set_content('<p class="text-sm text-red-400 italic">Error</p>')
+            keywords_label.set_text("Error")
+            tags_label.set_text("Error")
+            summary_label.update()
+            if sources_label is not None:
+                sources_label.update()
+            keywords_label.update()
+            tags_label.update()
+            UI_STATE["process_completed"] = True
+            if status_label is not None:
+                status_label.set_text('Failed')
+                status_label.update()
+            ui.notify(f"Summarization error: {error_msg}", type='negative')
 
     finally:
+        if _real_stdout is not None:
+            sys.stdout = _real_stdout
+        if _progress_timer is not None:
+            _progress_timer.cancel()
         # Always unlock the UI even if we return early due to validation.
         set_processing_ui_locked(False)
         if temp_file_path and os.path.exists(temp_file_path):
@@ -1108,7 +1177,7 @@ def main_page():
     global summary_label, sources_label, keywords_label, tags_label, results_container, download_button
     global file_picker_container, selected_file_container
     global selected_file_name_label, selected_file_size_label, selected_file_source_label, selected_file_thumbnail
-    global pdf_upload_component, summarize_actions_container, summarize_button, restart_button
+    global pdf_upload_component, summarize_actions_container, summarize_button, restart_button, abort_button
     global clear_selection_button, change_file_hint_label, summarizer_customize_button, parameters_customize_button
     global summarizer_config_summary_panel_ref, summarizer_config_editor_panel_ref
     global parameters_summary_panel_ref, parameters_editor_panel_ref
@@ -1254,7 +1323,7 @@ def main_page():
                         for file_name in demo_files:
                             ui.button(
                                 f'📎 {file_name}',
-                                on_click=lambda _, name=file_name: select_demo_pdf(
+                                on_click=lambda name=file_name: select_demo_pdf(
                                     name),
                             ).props('flat dense no-caps color=primary').classes('px-2 py-1')
                 else:
@@ -2001,18 +2070,32 @@ def main_page():
             ).props('outline icon=sym_o_restart_alt').classes('w-full text-lg py-2 rounded')
             restart_button.set_visibility(False)
 
-            summarize_button = ui.button('Summarize', on_click=lambda: handle_summarize(
-                max_words_input,
-                max_keywords_input,
-                max_tags_input,
-                out_lang_input,
-                processing_mode,
-                loader_radio,
-                embedding_radio,
-                provider_select,
-                llm_model_select,
-                status_label,
-            )).props('icon=sym_o_document_scanner').classes('w-full bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
+            def do_abort():
+                ev = UI_STATE.get("cancel_event")
+                if ev is not None:
+                    ev.set()
+
+            with ui.row().classes('w-full gap-2 items-stretch'):
+                summarize_button = ui.button('Summarize', on_click=lambda: handle_summarize(
+                    max_words_input,
+                    max_keywords_input,
+                    max_tags_input,
+                    out_lang_input,
+                    processing_mode,
+                    loader_radio,
+                    embedding_radio,
+                    provider_select,
+                    llm_model_select,
+                    status_label,
+                )).props('icon=sym_o_document_scanner').classes('flex-1 bg-blue-600 text-white text-lg py-2 rounded hover:bg-blue-700')
+
+                abort_button = ui.button(
+                    'Abort',
+                    on_click=do_abort,
+                ).props('flat icon=sym_o_cancel color=grey-6').classes(
+                    'text-sm text-gray-400 px-3 rounded hover:text-red-500 hover:bg-red-50'
+                )
+                abort_button.set_visibility(False)
 
         update_summarize_actions_visibility()
 
