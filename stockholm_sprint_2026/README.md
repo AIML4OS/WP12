@@ -1,6 +1,6 @@
 # WP12 Sprint - Stockholm 2026
 
-This folder contains planning material and, later, outputs from the WP12 sprint on Large Language Models to be held in **Stockholm, Sweden, 16-18 June 2026**.
+This folder contains planning material and outputs from the WP12 sprint on Large Language Models to be held in **Stockholm, Sweden, 16-18 June 2026**.
 
 The sprint will take place at **Statistics Sweden (SCB)**:
 
@@ -16,6 +16,8 @@ The aim is to support continued development of WP12 deliverables through focused
 
 The sprint builds on the experience from the WP12 hackathon held in Lisbon in June 2025, where several prototype examples were developed and later used as input for D12.1.
 
+A key ambition for the Stockholm sprint is to make progress on both prototype development and the draft structure and initial content for the next WP12 deliverable, **D12.2**. Work during the sprint should therefore capture technical outputs as well as documentation, reflections and evaluation considerations needed for the deliverable.
+
 ## Planned focus
 
 The detailed focus areas will be agreed with participants during the sprint. The initial planning is expected to include:
@@ -25,6 +27,7 @@ The detailed focus areas will be agreed with participants during the sprint. The
 - Setup of shared collaboration spaces and development environments
 - Prototype development and testing
 - Documentation and reporting of sprint outputs
+- Drafting material for D12.2
 - Discussion of next steps for WP12 deliverables
 
 ## Agenda
@@ -33,6 +36,17 @@ The draft agenda is available here:
 
 - [agenda.md](agenda.md)
 
+## Meeting notes
+
+Planning meetings before and after the sprint will be documented in the `meeting_notes/` folder when relevant.
+
+The intended structure for meeting notes is lightweight and focuses on:
+
+- agenda items
+- short notes and decisions
+- action points
+- follow-up items
+
 ## Expected outputs
 
 The expected outputs will be refined during the sprint, but may include:
@@ -40,6 +54,7 @@ The expected outputs will be refined during the sprint, but may include:
 - updated or new LLM prototype material
 - documentation of selected use cases and implementation approaches
 - reflections on architectural and evaluation aspects
+- draft material for D12.2
 - material that can support future WP12 deliverables
 
 ## Note
