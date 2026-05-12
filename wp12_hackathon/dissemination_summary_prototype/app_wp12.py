@@ -1,24 +1,29 @@
-import os
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-import re
-import json
-import html
-import asyncio
-import tempfile
-import base64
-import time
-import queue
-import sys
-import threading
-from nicegui import ui, run
+from typing import Any
+from nicegui.events import UploadEventArguments
 from summarizer_unified import (
     PDFSummarizer,
+    DEFAULT_INSTRUCTION_PROMPT,
     DEFAULT_LLM_MODELS_FALLBACK,
     fetch_llm_models_for_provider,
     probe_ollama_runtime,
     probe_specific_ollama_runtime,
 )
-from nicegui.events import UploadEventArguments
+from nicegui import ui, run
+import threading
+import sys
+import queue
+import time
+import base64
+import tempfile
+import asyncio
+import html
+import json
+import re
+import os
+import logging
+import warnings
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+logging.getLogger("pypdf._reader").setLevel(logging.ERROR)
 
 
 class _StdoutTee:
@@ -27,6 +32,7 @@ class _StdoutTee:
     Lines are buffered until a newline is received, then emitted as complete
     stripped strings. Blank lines are discarded. Thread-safe via SimpleQueue.
     """
+
     def __init__(self, real_stdout, q: queue.SimpleQueue):
         self._real = real_stdout
         self._q = q
@@ -49,9 +55,10 @@ class _StdoutTee:
         return getattr(self._real, name)
 
 
-uploaded_file = {}
-selected_demo_file = {'path': None}
-selected_file_info = {'name': None, 'size_bytes': None, 'source': None}
+uploaded_file: dict[str, Any] = {}
+selected_demo_file: dict[str, Any] = {'path': None}
+selected_file_info: dict[str, Any] = {
+    'name': None, 'size_bytes': None, 'source': None}
 summary_label = None
 sources_label = None
 keywords_label = None
@@ -81,7 +88,7 @@ file_card_container = None
 summarizer_config_card_container = None
 parameters_card_container = None
 
-UI_STATE = {
+UI_STATE: dict[str, Any] = {
     "processing": False,
     "process_completed": False,
     "summarizer_editor_open": False,
@@ -163,7 +170,13 @@ def build_summary_download_stem(
     if processing_mode == "plain":
         mode_emb = "plain"
     else:
-        emb = "loc" if (embedding_choice or "") == "local" else "rem"
+        ec = embedding_choice or ""
+        if ec == "local":
+            emb = "loc"
+        elif ec == "remote_ine":
+            emb = "rem-ine"
+        else:
+            emb = "rem-ssp"
         mode_emb = f"vect-{emb}"
     stem = (
         f"summary_w{max_words}_kw{max_keywords}_tg{max_tags}_{lang}_{prov}_"
@@ -280,7 +293,8 @@ def _numeric_claims_block_plain(
         num = str(claim.get("number", "")).strip()
         ids = claim.get("source_ids") or []
         if ids:
-            lines.append(f"- {num}: source(s) {', '.join(str(i) for i in ids)}")
+            lines.append(
+                f"- {num}: source(s) {', '.join(str(i) for i in ids)}")
         else:
             lines.append(f"- {num}: NO MATCHING SOURCE EXCERPT")
     if unmatched_numbers:
@@ -358,7 +372,8 @@ def _build_export_markdown(
 
     lines.extend(["## Numeric verification", ""])
     claims = numeric_claims if isinstance(numeric_claims, list) else []
-    unmatched = unmatched_numbers if isinstance(unmatched_numbers, list) else []
+    unmatched = unmatched_numbers if isinstance(
+        unmatched_numbers, list) else []
     if claims:
         for claim in claims:
             if not isinstance(claim, dict):
@@ -446,7 +461,8 @@ def _build_export_html(
 
     parts.append("<h2>Numeric verification</h2>")
     claims = numeric_claims if isinstance(numeric_claims, list) else []
-    unmatched = unmatched_numbers if isinstance(unmatched_numbers, list) else []
+    unmatched = unmatched_numbers if isinstance(
+        unmatched_numbers, list) else []
     if claims:
         parts.append("<ul>")
         for claim in claims:
@@ -456,14 +472,16 @@ def _build_export_html(
             ids = claim.get("source_ids") or []
             if ids:
                 ids_str = ", ".join(h(str(i)) for i in ids)
-                parts.append(f"<li><strong>{num}</strong> — source(s) {ids_str}</li>")
+                parts.append(
+                    f"<li><strong>{num}</strong> — source(s) {ids_str}</li>")
             else:
                 parts.append(
                     f"<li><strong>{num}</strong> — <em>no matching source excerpt</em></li>"
                 )
         parts.append("</ul>")
     else:
-        parts.append("<p><em>No numeric values detected in the summary.</em></p>")
+        parts.append(
+            "<p><em>No numeric values detected in the summary.</em></p>")
     if unmatched:
         unmatched_str = ", ".join(h(str(n)) for n in unmatched)
         parts.append(
@@ -472,7 +490,8 @@ def _build_export_html(
             f"{unmatched_str}</p>"
         )
 
-    kw_items = "".join(f"<li>{h(str(k))}</li>" for k in keywords) if keywords else ""
+    kw_items = "".join(
+        f"<li>{h(str(k))}</li>" for k in keywords) if keywords else ""
     tg_items = "".join(f"<li>{h(str(t))}</li>" for t in tags) if tags else ""
     parts.extend(
         [
@@ -506,7 +525,8 @@ def _build_export_json(
         "tags": list(tags) if isinstance(tags, list) else [],
         "numeric_claims": clean_claims,
         "unmatched_numbers": (
-            list(unmatched_numbers) if isinstance(unmatched_numbers, list) else []
+            list(unmatched_numbers) if isinstance(
+                unmatched_numbers, list) else []
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
@@ -729,6 +749,7 @@ def run_summarization(
     use_vector_store,
     document_loader,
     use_remote_embedding,
+    remote_embedding_source,
     llm_provider,
     llm_model,
     ollama_base_url,
@@ -741,7 +762,7 @@ def run_summarization(
         override=True,
     )
     lp = (llm_provider or "ssp").lower().strip()
-    lc = {"temperature": 0.1}
+    lc: dict[str, Any] = {"temperature": 0.1}
     if lp == "ssp":
         lc["api_key"] = os.getenv("SSP_KEY")
         lc["model"] = llm_model
@@ -771,6 +792,7 @@ def run_summarization(
         document_loader=document_loader,
         embedding_model="BAAI/bge-m3",
         use_remote_embedding=use_remote_embedding,
+        remote_embedding_source=remote_embedding_source,
         max_keywords=max_keywords,
         max_tags=max_tags,
         max_words=max_words,
@@ -820,8 +842,8 @@ def show_file_selection():
         or selected_file_name_label is None
     ):
         return
-    name = selected_file_info.get('name', 'Unknown file')
-    source = selected_file_info.get('source', '')
+    name = selected_file_info.get('name') or 'Unknown file'
+    source = selected_file_info.get('source') or ''
     size_text = format_size(selected_file_info.get('size_bytes'))
     source_text = SOURCE_DISPLAY.get(source, source or '—')
 
@@ -959,7 +981,7 @@ async def handle_summarize(
                 tmp_file.write(uploaded_file['file'].content.read())
             source_file_path = temp_file_path
         elif selected_demo_file.get('path'):
-            source_file_path = selected_demo_file.get('path')
+            source_file_path = selected_demo_file['path']
             if not os.path.exists(source_file_path):
                 ui.notify('Please choose a demo PDF file first.',
                           type='warning')
@@ -976,7 +998,11 @@ async def handle_summarize(
             return
 
         use_vector = processing_mode_radio.value == 'vector'
-        use_remote = use_vector and embedding_radio.value == 'remote'
+        use_remote = use_vector and embedding_radio.value in ('remote', 'remote_ine')
+        remote_emb_src = (
+            'ine' if use_vector and embedding_radio.value == 'remote_ine'
+            else 'ssp'
+        )
         llm_model = llm_model_select.value
         if not llm_model:
             ui.notify(
@@ -1035,6 +1061,7 @@ async def handle_summarize(
             use_vector,
             loader_radio.value,
             use_remote,
+            remote_emb_src,
             provider_select.value,
             llm_model,
             (
@@ -1054,17 +1081,21 @@ async def handle_summarize(
             result, dict) else None
         summary_text = result.get("summary", "No summary.") if isinstance(
             result, dict) else str(result)
-        summary_label.set_text(summary_text)
+        if summary_label is not None:
+            summary_label.set_text(summary_text)
         sources = result.get("sources", []) if isinstance(result, dict) else []
         unmatched_numbers = (
-            result.get("unmatched_numbers", []) if isinstance(result, dict) else []
+            result.get("unmatched_numbers", []) if isinstance(
+                result, dict) else []
         )
         numeric_claims = (
-            result.get("numeric_claims", []) if isinstance(result, dict) else []
+            result.get("numeric_claims", []) if isinstance(
+                result, dict) else []
         )
         sources_html = _sources_block_html(sources)
         if isinstance(unmatched_numbers, list) and unmatched_numbers:
-            escaped_nums = html.escape(", ".join(str(n) for n in unmatched_numbers))
+            escaped_nums = html.escape(", ".join(str(n)
+                                       for n in unmatched_numbers))
             sources_html += (
                 '<p class="text-sm font-semibold text-red-500 mt-2">'
                 f'Warning: numbers in the summary without a matching source excerpt: {escaped_nums}'
@@ -1078,8 +1109,10 @@ async def handle_summarize(
         tags = (result.get("tags", []) if isinstance(result, dict) else [])[
             : int(max_tags_input.value)
         ]
-        keywords_label.set_text(", ".join(keywords))
-        tags_label.set_text(", ".join(tags))
+        if keywords_label is not None:
+            keywords_label.set_text(", ".join(keywords))
+        if tags_label is not None:
+            tags_label.set_text(", ".join(tags))
         LAST_SUMMARY_META["elapsed_s"] = elapsed_s
         LAST_SUMMARY_META["timing_breakdown"] = timing_sec
         LAST_SUMMARY_META["download_stem"] = build_summary_download_stem(
@@ -1103,7 +1136,8 @@ async def handle_summarize(
             list(numeric_claims) if isinstance(numeric_claims, list) else []
         )
         LAST_SUMMARY_META["export_unmatched_numbers"] = (
-            list(unmatched_numbers) if isinstance(unmatched_numbers, list) else []
+            list(unmatched_numbers) if isinstance(
+                unmatched_numbers, list) else []
         )
         LAST_SUMMARY_META["export_ready"] = True
         if status_label is not None:
@@ -1114,11 +1148,14 @@ async def handle_summarize(
             results_container.set_visibility(True)
             download_button.set_visibility(True)
         UI_STATE["process_completed"] = True
-        summary_label.update()
+        if summary_label is not None:
+            summary_label.update()
         if sources_label is not None:
             sources_label.update()
-        keywords_label.update()
-        tags_label.update()
+        if keywords_label is not None:
+            keywords_label.update()
+        if tags_label is not None:
+            tags_label.update()
         if results_container and download_button:
             results_container.update()
             download_button.update()
@@ -1144,17 +1181,30 @@ async def handle_summarize(
                     "Remote embedding failed: the SSP Cloud Ollama API endpoint is disabled. "
                     "Switch to Local embedding in the Summarizer configuration, or check SSP Cloud access."
                 )
+            elif "Remote embedding failed" in error_msg and "Statistics Portugal" in error_msg:
+                error_msg = (
+                    "Remote embedding failed: the Statistics Portugal (INE) embedding endpoint is not "
+                    "reachable. Make sure you are connected to the INE corporate network, then try again. "
+                    "Alternatively, switch to Local or SSP Cloud embedding in the Summarizer configuration."
+                )
             LAST_SUMMARY_META["export_ready"] = False
-            summary_label.set_text(f"❌ Error: {error_msg}")
+            if summary_label is not None:
+                summary_label.set_text(f"❌ Error: {error_msg}")
             if sources_label is not None:
-                sources_label.set_content('<p class="text-sm text-red-400 italic">Error</p>')
-            keywords_label.set_text("Error")
-            tags_label.set_text("Error")
-            summary_label.update()
+                sources_label.set_content(
+                    '<p class="text-sm text-red-400 italic">Error</p>')
+            if keywords_label is not None:
+                keywords_label.set_text("Error")
+            if tags_label is not None:
+                tags_label.set_text("Error")
+            if summary_label is not None:
+                summary_label.update()
             if sources_label is not None:
                 sources_label.update()
-            keywords_label.update()
-            tags_label.update()
+            if keywords_label is not None:
+                keywords_label.update()
+            if tags_label is not None:
+                tags_label.update()
             UI_STATE["process_completed"] = True
             if status_label is not None:
                 status_label.set_text('Failed')
@@ -1254,7 +1304,7 @@ def main_page():
         '''.strip()
     )
 
-    with ui.column().classes('items-center p-10 gap-8 text-xl max-w-7xl w-full mx-auto'):
+    with ui.column().classes('items-center p-8 pb-2 gap-8 text-xl max-w-7xl w-full mx-auto'):
 
         with ui.row().classes('items-center gap-3 justify-center flex-wrap text-center'):
             ui.icon('sym_o_article').classes(
@@ -1263,9 +1313,9 @@ def main_page():
                 'text-3xl font-medium text-slate-900 tracking-tight'
             )
 
-        with ui.card().classes('w-full p-6 shadow-lg') as file_card_container:
+        with ui.card().classes('w-full p-6 pb-3 shadow-lg') as file_card_container:
             with ui.column().classes('w-full gap-4') as file_picker_container:
-                with ui.row().classes('items-center gap-3 mb-4'):
+                with ui.row().classes('items-center gap-3 mb-0'):
                     ui.icon('sym_o_picture_as_pdf').classes(
                         'text-3xl text-primary shrink-0 opacity-90'
                     )
@@ -1277,7 +1327,7 @@ def main_page():
                     'w-full rounded-2xl border-2 border-dashed '
                     'border-slate-300 bg-gradient-to-b from-slate-50 to-white '
                     'shadow-inner hover:border-primary hover:from-blue-50/60 hover:to-white '
-                    'transition-colors duration-200 overflow-hidden gap-4 p-5 relative'
+                    'transition-colors duration-200 overflow-hidden gap-0 p-4 relative'
                 ):
                     pdf_upload_component = ui.upload(
                         on_upload=handle_upload,
@@ -1300,16 +1350,16 @@ def main_page():
                                 ui.label('Browse or drop a PDF').classes(
                                     'text-base font-medium text-slate-700'
                                 )
-                                ui.label(
-                                    'Choose a file with the button, or drag a PDF anywhere '
-                                    'in this dashed area.'
-                                ).classes('text-sm text-gray-500')
+                                # ui.label(
+                                #     'Choose a file with the button, or drag a PDF anywhere '
+                                #     'in this dashed area.'
+                                # ).classes('text-sm text-gray-500')
 
                         ui.button(
                             'Browse PDF files',
                             icon='sym_o_folder_open',
                             on_click=lambda: pdf_upload_component.run_method(
-                                'pickFiles'),
+                                'pickFiles') if pdf_upload_component is not None else None,
                         ).props('unelevated color=primary no-caps').classes(
                             'w-full py-3 text-lg shadow-sm pointer-events-auto'
                         )
@@ -1322,13 +1372,14 @@ def main_page():
                         )
                         for file_name in demo_files:
                             ui.button(
-                                f'📎 {file_name}',
-                                on_click=lambda name=file_name: select_demo_pdf(
-                                    name),
+                                file_name,
+                                icon='sym_o_picture_as_pdf',
+                                on_click=lambda _e, _name=file_name: select_demo_pdf(
+                                    _name),
                             ).props('flat dense no-caps color=primary').classes('px-2 py-1')
-                else:
-                    ui.label('No demo PDFs found in demo_docs.').classes(
-                        'text-sm text-gray-600')
+                # else:
+                #    ui.label('No demo PDFs found in demo_docs.').classes(
+                #        'text-sm text-gray-600')
 
             with ui.column().classes('w-full gap-4') as selected_file_container:
                 ui.label('File to process').classes(
@@ -1375,7 +1426,7 @@ def main_page():
             selected_file_container.set_visibility(False)
 
         with ui.card().classes('w-full p-6 shadow-lg') as summarizer_config_card_container:
-            with ui.row().classes('items-center gap-3 mb-4'):
+            with ui.row().classes('items-center gap-3 mb-0'):
                 ui.icon('sym_o_auto_awesome').classes(
                     'text-3xl text-primary shrink-0 opacity-90'
                 )
@@ -1435,9 +1486,9 @@ def main_page():
                         'w-full rounded-xl bg-slate-50/90 px-3 py-3 border '
                         'border-slate-100 gap-3'
                     ):
-                        ui.label(
-                            'SSP/OpenAI plus available Ollama runtimes (local and Statistics Portugal remote).'
-                        ).classes('text-xs text-slate-500 leading-snug')
+                        # ui.label(
+                        #    'SSP/OpenAI plus available Ollama runtimes (local and Statistics Portugal remote).'
+                        # ).classes('text-xs text-slate-500 leading-snug')
 
                         provider_select = ui.select(
                             PROVIDER_SELECT_OPTIONS_NO_OLLAMA,
@@ -1461,9 +1512,9 @@ def main_page():
 
                         provider_models_cache = {
                             'ssp': list(_fb_ssp),
-                            'openai': list(DEFAULT_LLM_MODELS_FALLBACK['openai']),
                             'ollama': list(DEFAULT_LLM_MODELS_FALLBACK['ollama']),
                             'ollama_ine': list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine']),
+                            'openai': list(DEFAULT_LLM_MODELS_FALLBACK['openai']),
                         }
 
                         def _current_ollama_base_for_provider(prov: str) -> str:
@@ -1481,7 +1532,7 @@ def main_page():
                                 include_ine_ollama=bool(
                                     OLLAMA_INE_PROBE_STATE.get('ok')),
                             )
-                            pv = provider_select.value
+                            pv = provider_select.value or 'ssp'
                             models = provider_models_cache.get(pv) or DEFAULT_LLM_MODELS_FALLBACK.get(
                                 pv, DEFAULT_LLM_MODELS_FALLBACK['ssp']
                             )
@@ -1495,7 +1546,8 @@ def main_page():
                             # Re-read .env so key changes take effect without a restart.
                             from dotenv import load_dotenv as _load_dotenv
                             _load_dotenv(
-                                os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'),
+                                os.path.join(os.path.dirname(
+                                    os.path.abspath(__file__)), '.env'),
                                 override=True,
                             )
 
@@ -1537,7 +1589,7 @@ def main_page():
                                     ui.notify(str(e), type='negative')
 
                         async def refresh_llm_models_clicked():
-                            await refresh_llm_models_for_provider(provider_select.value, notify=True)
+                            await refresh_llm_models_for_provider(provider_select.value or 'ssp', notify=True)
 
                         async def run_ollama_probe_ui(user_hint=None, *, notify: bool = True):
                             ollama_status_label.set_text(
@@ -1732,8 +1784,12 @@ def main_page():
                                         'BAAI/bge-m3 via Hugging Face on this machine.'
                                     ),
                                     'remote': (
-                                        'Remote embedding\n'
-                                        'qwen3-embedding-8b via the SSP embedding endpoint.'
+                                        'Remote embedding (SSP Cloud)\n'
+                                        'qwen3-embedding-8b via the SSP Cloud embedding endpoint.'
+                                    ),
+                                    'remote_ine': (
+                                        'Remote embedding (Statistics Portugal)\n'
+                                        'qwen3-embedding-8b via the INE embedding endpoint.'
                                     ),
                                 },
                                 value='remote',
@@ -1772,7 +1828,7 @@ def main_page():
                         ).props('vertical')
 
                 def refresh_summarizer_summary():
-                    pv = provider_select.value
+                    pv = provider_select.value or 'ssp'
                     summarizer_summary_llm_provider_label.set_text(
                         f'LLM: {LLM_PROVIDER_LABEL.get(pv, pv)}'
                     )
@@ -1792,11 +1848,12 @@ def main_page():
                     summarizer_summary_mode_label.update()
                     summarizer_summary_loader_label.update()
                     if mode == 'vector':
-                        emb_txt = (
-                            'Local (BAAI/bge-m3)'
-                            if embedding_radio.value == 'local'
-                            else 'Remote (qwen3-embedding-8b)'
-                        )
+                        if embedding_radio.value == 'local':
+                            emb_txt = 'Local (BAAI/bge-m3)'
+                        elif embedding_radio.value == 'remote_ine':
+                            emb_txt = 'Remote/INE (qwen3-embedding-8b)'
+                        else:
+                            emb_txt = 'Remote/SSP (qwen3-embedding-8b)'
                         summarizer_summary_embeddings_label.set_text(
                             f'Embeddings: {emb_txt}')
                         summarizer_summary_embeddings_label.update()
@@ -1813,16 +1870,18 @@ def main_page():
                     lambda _: (_sync_mode_and_summary(), invalidate_result()))
 
                 def _apply_llm_fallback_models():
-                    prov = provider_select.value
+                    prov = provider_select.value or 'ssp'
                     probe_state = (
                         OLLAMA_PROBE_STATE if prov == 'ollama' else
                         OLLAMA_INE_PROBE_STATE if prov == 'ollama_ine' else
                         None
                     )
                     if probe_state and probe_state.get('ok'):
-                        models = probe_state.get('models') or list(DEFAULT_LLM_MODELS_FALLBACK[prov])
+                        models = probe_state.get('models') or list(
+                            DEFAULT_LLM_MODELS_FALLBACK[prov])
                     else:
-                        models = list(DEFAULT_LLM_MODELS_FALLBACK.get(prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']))
+                        models = list(DEFAULT_LLM_MODELS_FALLBACK.get(
+                            prov, DEFAULT_LLM_MODELS_FALLBACK['ssp']))
                     llm_model_select.options = models
                     llm_model_select.value = models[0] if models else None
                     llm_model_select.update()
@@ -1872,7 +1931,7 @@ def main_page():
             refresh_summarizer_summary()
 
         with ui.card().classes('w-full p-6 shadow-lg') as parameters_card_container:
-            with ui.row().classes('items-center gap-3 mb-4'):
+            with ui.row().classes('items-center gap-3 mb-0'):
                 ui.icon('sym_o_tune').classes(
                     'text-3xl text-primary shrink-0 opacity-90'
                 )
@@ -1924,6 +1983,18 @@ def main_page():
                         'flex-shrink-0'
                     )
 
+                with ui.row().classes('items-start gap-2 px-1'):
+                    ui.icon('sym_o_psychology').classes(
+                        'text-base text-primary opacity-70 mt-0.5 shrink-0'
+                    )
+                    _prompt_preview = DEFAULT_INSTRUCTION_PROMPT.replace(
+                        '\n', ' ')
+                    if len(_prompt_preview) > 160:
+                        _prompt_preview = _prompt_preview[:157].rstrip() + '…'
+                    ui.label(_prompt_preview).classes(
+                        'text-xs text-slate-400 leading-relaxed italic'
+                    )
+
             parameters_editor_panel = ui.column().classes('w-full gap-4')
             parameters_summary_panel_ref = parameters_summary_panel
             parameters_editor_panel_ref = parameters_editor_panel
@@ -1951,6 +2022,26 @@ def main_page():
                         value='pt-pt',
                         placeholder='Language code (e.g. pt-pt, en, fr, de-DE, zh-Hans…)',
                     ).classes('w-full min-w-0').props('clearable')
+
+                ui.separator().classes('w-full opacity-40')
+
+                with ui.row().classes('items-center gap-2 mb-1'):
+                    ui.icon('sym_o_psychology').classes(
+                        'text-lg text-primary opacity-80'
+                    )
+                    ui.label('Instruction Prompt').classes(
+                        'text-sm font-medium text-slate-700'
+                    )
+                ui.label(
+                    'The instruction sent to the language model on every summarisation. '
+                    'Read-only — contact the administrator to change it.'
+                ).classes('text-xs text-slate-400 leading-relaxed mb-1')
+                with ui.element('div').classes(
+                    'w-full rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3'
+                ):
+                    ui.label(DEFAULT_INSTRUCTION_PROMPT).classes(
+                        'text-sm text-slate-400 leading-7 whitespace-pre-wrap'
+                    )
 
                 ui.separator().classes('w-full opacity-60')
                 ui.button(
@@ -2099,7 +2190,7 @@ def main_page():
 
         update_summarize_actions_visibility()
 
-        ui.separator().classes('w-full my-4')
+        # ui.separator().classes('w-full my-4')
 
         with ui.column().classes('w-full gap-4') as results_container:
             with ui.card().classes('w-full p-6 bg-slate-50/90 border border-slate-100'):

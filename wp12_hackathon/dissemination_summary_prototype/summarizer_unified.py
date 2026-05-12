@@ -1,6 +1,33 @@
 # this is a unified summarizer that has parameters for the different summarizers
 
 # Load environment variables FIRST, before any other imports
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+import requests
+from openai import AuthenticationError
+from langchain_community.vectorstores.utils import filter_complex_metadata
+import json
+import logging
+import torch
+from langchain_ollama import OllamaEmbeddings
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+from langchain_docling.loader import ExportType, DoclingLoader
+from langchain_core.prompts import PromptTemplate
+from langchain_core.documents import Document
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
+from docling.document_converter import DocumentConverter
+from langchain_core.language_models import BaseChatModel
+from langchain.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
+from typing import List, Dict, Optional, Any, Tuple, Set
+import re
+import time
+import warnings
 from dotenv import load_dotenv
 import os
 
@@ -9,35 +36,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 # Load .env from the script's directory, not the current working directory.
 # override=True ensures stale shell-exported SSP_KEY values do not shadow .env.
 load_dotenv(os.path.join(script_dir, '.env'), override=True)
-
-
-import warnings
-import time
-import re
-from typing import List, Dict, Optional, Any, Tuple, Set
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.language_models import BaseChatModel
-from docling.document_converter import DocumentConverter
-from docling.chunking import HybridChunker
-from langchain_docling import DoclingLoader
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain_core.prompts import PromptTemplate
-from langchain_docling.loader import ExportType
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_ollama import OllamaEmbeddings
-import torch
-import logging
-import json
-from langchain_community.vectorstores.utils import filter_complex_metadata
-from openai import AuthenticationError
-import requests
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 
 def _env_float(key: str, default: float) -> float:
@@ -118,12 +116,29 @@ _NUMERIC_TOKEN_RE = re.compile(
 )
 
 
-# Suppress PyTorch MPS warnings
-warnings.filterwarnings("ignore", message=".*pin_memory.*MPS.*")
+# On macOS/Apple Silicon, torch.accelerator.is_available() returns True for MPS so
+# this warning never fires. On CPU-only machines (no CUDA/MPS) it does fire because
+# easyocr hardcodes pin_memory=True in its DataLoaders — suppress it here since
+# torch handles it gracefully (pin_memory becomes a no-op).
+warnings.filterwarnings(
+    "ignore", message=".*pin_memory.*no accelerator.*", category=UserWarning)
 
 # Configure logging - reduce verbosity
 logging.basicConfig(level=logging.WARNING)  # Changed from INFO to WARNING
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Default instruction prompt — exported so the UI can display it.
+# ---------------------------------------------------------------------------
+DEFAULT_INSTRUCTION_PROMPT = (
+    "You are a statistician specializing in reporting; your goal is to summarize the content of documents.\n"
+    "You must not add information or make analysis; only summarize what is already present.\n"
+    "Pay special attention to avoiding bias in your summaries; remain neutral. "
+    "Follow the spirit and tone of the documents.\n"
+    "Use European Portuguese for Portuguese output and American English for English output.\n"
+    "Strive for eloquence while remaining accessible in the target language."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +157,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _HF_EMBEDDING_CACHE: Dict[tuple, Any] = {}
 _DOCLING_CONVERTER_INSTANCE: Any = None
+_HYBRID_CHUNKER_CACHE: Dict[str, Any] = {}
 
 
 def _get_hf_embedding(model_name: str, device: str) -> Any:
@@ -164,6 +180,20 @@ def _get_docling_converter() -> Any:
     return _DOCLING_CONVERTER_INSTANCE
 
 
+def _get_hybrid_chunker(tokenizer: str) -> Any:
+    """Return a cached HybridChunker instance (loaded once per tokenizer name per process).
+
+    HybridChunker loads the tokenizer from the HuggingFace Hub cache on disk every time it
+    is instantiated — even though the weights are already local after the first download.
+    Keeping a singleton avoids that repeated disk-load cost on every document.
+
+    The HF cache directory itself is controlled by HF_HOME in .env (see .env for details).
+    """
+    if tokenizer not in _HYBRID_CHUNKER_CACHE:
+        _HYBRID_CHUNKER_CACHE[tokenizer] = HybridChunker(tokenizer=tokenizer)  # pyright: ignore[reportArgumentType]
+    return _HYBRID_CHUNKER_CACHE[tokenizer]
+
+
 # Fallback lists when model discovery fails or keys are missing (UI still offers a choice).
 DEFAULT_LLM_MODELS_FALLBACK: Dict[str, List[str]] = {
     "ssp": ["qwen3-6-35b-moe"],
@@ -179,7 +209,8 @@ def _ollama_http_get(url: str, timeout: float) -> requests.Response:
     would otherwise break browser-identical URLs like http://localhost:11434.
     """
     host_part = url.split("://", 1)[-1].split("/", 1)[0].lower()
-    localish = host_part.startswith("127.") or host_part.startswith("localhost")
+    localish = host_part.startswith(
+        "127.") or host_part.startswith("localhost")
     if localish:
         session = requests.Session()
         session.trust_env = False
@@ -236,7 +267,8 @@ def _ollama_chat_model_names_from_tags_body(body: Any) -> List[str]:
         if not label:
             continue
         low = label.lower()
-        details = row.get("details") if isinstance(row.get("details"), dict) else {}
+        details_raw = row.get("details")
+        details: dict = details_raw if isinstance(details_raw, dict) else {}
         family = (details.get("family") or "").lower()
         if "embed" in low or family == "nomic-bert":
             continue
@@ -512,10 +544,10 @@ def fetch_llm_models_for_provider(
     raise ValueError(f"Unknown LLM provider: {provider}")
 
 
-def timed_execution(message_template: str = None):
+def timed_execution(message_template: Optional[str] = None):
     """
     Decorator that times function execution and prints a custom message with timing.
-    
+
     Args:
         message_template (str): Template message to format with function parameters. 
                                If None, uses the function name.
@@ -533,29 +565,30 @@ def timed_execution(message_template: str = None):
                         sig = inspect.signature(func)
                         bound_args = sig.bind(*args, **kwargs)
                         bound_args.apply_defaults()
-                        
+
                         # Create a dict with parameter names and values
                         param_dict = dict(bound_args.arguments)
                         # Remove 'self' from the dict
                         if 'self' in param_dict:
                             del param_dict['self']
-                        
+
                         display_message = message_template.format(**param_dict)
                     else:  # Regular function
-                        display_message = message_template.format(*args, **kwargs)
+                        display_message = message_template.format(
+                            *args, **kwargs)
                 except (KeyError, IndexError) as e:
                     # Fallback if formatting fails
                     display_message = f"Executing {func.__name__} (format error: {e})"
             else:
                 display_message = f"Executing {func.__name__}"
-            
+
             print(f"{display_message}")
-            
+
             # Time the execution
             start_time = time.time()
             result = func(*args, **kwargs)
             execution_time = time.time() - start_time
-            
+
             # Print timing
             print(f"⏱️ Execution time: {execution_time:.2f} seconds")
             return result
@@ -567,7 +600,7 @@ class PDFSummarizer:
     def __init__(
         self,
         llm_provider: str = "ssp",
-        llm_config: Dict = None
+        llm_config: Optional[Dict] = None
     ):
         # Initialize LLM with configuration
         llm_config = llm_config or {}
@@ -899,7 +932,8 @@ class PDFSummarizer:
             return []
         out: List[str] = []
         for page in pages:
-            out.append(self._normalize_for_match(getattr(page, "page_content", "")))
+            out.append(self._normalize_for_match(
+                getattr(page, "page_content", "")))
         return out
 
     def _infer_page_from_excerpt(self, excerpt: str, page_texts_norm: List[str]) -> Optional[int]:
@@ -933,7 +967,8 @@ class PDFSummarizer:
             return None
 
         # Common flat keys first.
-        flat_keys = ("page", "page_number", "page_num", "page_no", "pagenum", "page_idx")
+        flat_keys = ("page", "page_number", "page_num",
+                     "page_no", "pagenum", "page_idx")
         for key in flat_keys:
             if key in metadata:
                 val = _extract_int(metadata.get(key))
@@ -1046,7 +1081,8 @@ class PDFSummarizer:
 
                 window_start = max(0, start - excerpt_window // 2)
                 window_end = min(len(content), end + excerpt_window // 2)
-                raw_excerpt = " ".join(content[window_start:window_end].split())
+                raw_excerpt = " ".join(
+                    content[window_start:window_end].split())
                 if len(raw_excerpt) > 360:
                     raw_excerpt = raw_excerpt[:359].rstrip() + "…"
                 prefix = "…" if window_start > 0 else ""
@@ -1088,13 +1124,14 @@ class PDFSummarizer:
         llm_retries = max(0, min(10, _env_int("LLM_MAX_RETRIES", 2)))
 
         if provider.lower() == "openai":
-            model_name = kwargs.get("model_name") or kwargs.get("model", "gpt-4o-mini")
+            model_name = kwargs.get("model_name") or kwargs.get(
+                "model", "gpt-4o-mini")
             api_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY")
             return ChatOpenAI(
-                model_name=model_name,
+                model=model_name,
                 temperature=kwargs.get("temperature", 0.7),
                 api_key=api_key,
-                request_timeout=llm_timeout,
+                request_timeout=llm_timeout,  # pyright: ignore[reportCallIssue]
                 max_retries=llm_retries,
             )
         elif provider.lower() == "ollama":
@@ -1105,13 +1142,13 @@ class PDFSummarizer:
                 sync_client_kwargs={"timeout": llm_timeout},
             )
         elif provider.lower() == "ssp":
-            #model = "mistral-small3.1:latest",
-            #model = "llama3.3:70b",
+            # model = "mistral-small3.1:latest",
+            # model = "llama3.3:70b",
 
             return ChatOpenAI(
-                api_key = kwargs.get("api_key"),  # replace with your key
+                api_key=kwargs.get("api_key"),  # replace with your key
                 base_url="https://llm.lab.sspcloud.fr/api",
-                #model=kwargs.get("model", "mistral-small3.2:latest"),
+                # model=kwargs.get("model", "mistral-small3.2:latest"),
                 model=kwargs.get("model", "qwen3-6-35b-moe"),
                 temperature=kwargs.get("temperature", 0.7),
                 request_timeout=llm_timeout,
@@ -1133,15 +1170,15 @@ class PDFSummarizer:
             ) from exc
         raise exc
 
-    @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}")
-    def process_pdf(self, pdf_path: str, use_vector_store:bool = False, document_loader:str = "docling", embedding_model:str = "BAAI/bge-m3", use_remote_embedding:bool = False, max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
+    @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}, remote_embedding_source: {remote_embedding_source}")
+    def process_pdf(self, pdf_path: str, use_vector_store: bool = False, document_loader: str = "docling", embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = False, remote_embedding_source: str = "ssp", max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
         """
         Process a PDF file and return a summary.
         """
 
         # - 1 - load the pdf with docling or pypdf
         # - 2 - split the pdf into chunks
-        # - 3 - load the chunks into a vector store or just the text        
+        # - 3 - load the chunks into a vector store or just the text
         # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
         # - 5 - return the summary
 
@@ -1152,23 +1189,31 @@ class PDFSummarizer:
         timing: Dict[str, float] = {}
 
         if use_vector_store:
-            print(f"⏳ Step 1/4 — Loading and chunking PDF ({document_loader})...")
+            print(
+                f"⏳ Step 1/4 — Loading and chunking PDF ({document_loader})...")
             t0 = time.perf_counter()
             if document_loader == "docling":
                 chunks = self._load_pdf_with_docling(pdf_path)
             elif document_loader == "pypdf":
                 chunks = self._load_pdf_with_pypdf(pdf_path)
             else:
-                raise ValueError(f"Unsupported document loader: {document_loader}")
+                raise ValueError(
+                    f"Unsupported document loader: {document_loader}")
             timing["chunks"] = time.perf_counter() - t0
             print(f"   ✓ {len(chunks)} chunks in {timing['chunks']:.1f}s")
             _check_cancel()
 
-            print(f"⏳ Step 2/4 — Building vector store (embedding: {'remote' if use_remote_embedding else embedding_model})...")
+            if use_remote_embedding:
+                _emb_label = f"remote/{remote_embedding_source} (qwen3-embedding-8b)"
+            else:
+                _emb_label = embedding_model
+            print(
+                f"⏳ Step 2/4 — Building vector store (embedding: {_emb_label})...")
             t1 = time.perf_counter()
             # Each call gets a fresh, isolated in-memory collection (unique name).
             # The embedding model itself is stateless and safely reused via the module cache.
-            vector_store = self._get_vector_store(chunks, embedding_model, use_remote_embedding)
+            vector_store = self._get_vector_store(
+                chunks, embedding_model, use_remote_embedding, remote_embedding_source)
             retriever = vector_store.as_retriever(search_kwargs={"k": 10})
             retrieval_chain = self._create_retrieval_chain(retriever)
             timing["vector_store"] = time.perf_counter() - t1
@@ -1179,7 +1224,7 @@ class PDFSummarizer:
             try:
                 t2 = time.perf_counter()
                 result = retrieval_chain.invoke({
-                    "input": "Summarize the main content and statistics from this document about air transport activity",
+                    "input": "Summarize the main content and key information from this document.",
                     "max_keywords": max_keywords,
                     "max_tags": max_tags,
                     "max_words": max_words,
@@ -1232,7 +1277,8 @@ class PDFSummarizer:
                 pdf_text = self._load_pdf_txt_with_pypdf(pdf_path)
                 context = context + pdf_text
             else:
-                raise ValueError(f"Unsupported document loader: {document_loader}")
+                raise ValueError(
+                    f"Unsupported document loader: {document_loader}")
             timing["pdf_load"] = time.perf_counter() - t0
             print(f"   ✓ PDF loaded in {timing['pdf_load']:.1f}s")
             _check_cancel()
@@ -1277,14 +1323,12 @@ class PDFSummarizer:
                 result["unmatched_numbers"] = coverage["unmatched_numbers"]
             return _attach_timing_breakdown(result, timing)
 
-
     def _create_summary_chain(self):
         """
         Create a runnable sequence for direct text summarization (non-vector store mode).
         """
         chat_prompt, _ = self._get_shared_prompts()
         return chat_prompt | self.llm | self._safe_json_parse
-
 
     def _docling_plain_text_sync(self, pdf_path: str) -> str:
         """Full Docling conversion + text extraction (runs in worker thread when timed out)."""
@@ -1322,14 +1366,14 @@ class PDFSummarizer:
         pages = loader.load()
         return "\n".join(page.page_content for page in pages)
 
-    def _docling_chunks_sync(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[str]:
+    def _docling_chunks_sync(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[Document]:
         export_type = ExportType.DOC_CHUNKS
         with self._suppress_logging():
             loader = DoclingLoader(
                 file_path=pdf_path,
                 export_type=export_type,
                 converter=_get_docling_converter(),
-                chunker=HybridChunker(tokenizer=sentence_transformer_model),
+                chunker=_get_hybrid_chunker(sentence_transformer_model),
             )
 
             docs = loader.load()
@@ -1347,13 +1391,14 @@ class PDFSummarizer:
                         ("###", "Header_3"),
                     ],
                 )
-                splits = [split for doc in docs for split in splitter.split_text(doc.page_content)]
+                splits = [split for doc in docs for split in splitter.split_text(
+                    doc.page_content)]
             else:
                 raise ValueError(f"Unexpected export type: {export_type}")
 
             return splits
 
-    def _load_pdf_with_docling(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[str]:
+    def _load_pdf_with_docling(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[Document]:
         """
         Load PDF using docling's advanced parsing capabilities.
         Same timeout as plain Docling path (DOCLING_CONVERT_TIMEOUT_SEC).
@@ -1364,27 +1409,40 @@ class PDFSummarizer:
             "Try PDF loader PyPDF, or raise DOCLING_CONVERT_TIMEOUT_SEC."
         )
         return _run_callable_with_timeout(
-            lambda: self._docling_chunks_sync(pdf_path, sentence_transformer_model),
+            lambda: self._docling_chunks_sync(
+                pdf_path, sentence_transformer_model),
             timeout,
             msg,
         )
 
-    def _get_vector_store(self, splits: List[str], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True) -> str:
+    def _get_vector_store(self, splits: List[Document], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True, remote_embedding_source: str = "ssp") -> Chroma:
         """
         Create vector store with local or remote embeddings.
 
-        Remote embedding uses the SSP OpenAI-compatible /v1/embeddings endpoint.
-        If it is unavailable (503, 500, etc.) the call raises a descriptive
+        Remote embedding uses an OpenAI-compatible /v1/embeddings endpoint.
+        ``remote_embedding_source`` selects which remote endpoint to use:
+          - ``"ssp"``  – SSP Cloud (https://llm.lab.sspcloud.fr/api/v1), key: SSP_KEY
+          - ``"ine"``  – Statistics Portugal (https://ollama.ine.pt/v1), key: INE_KEY
+        If the remote endpoint is unavailable the call raises a descriptive
         RuntimeError telling the user to switch to Local embedding instead.
         """
         if use_remote_embedding:
             from langchain_openai import OpenAIEmbeddings
             remote_model = "qwen3-embedding-8b"
-            print(f"🔧 Remote embedding with model: {remote_model} at SSP (OpenAI-compatible endpoint)")
+            if remote_embedding_source == "ine":
+                remote_base = "https://ollama.ine.pt/v1"
+                remote_key = "nokeyneeded"  # no auth required; only reachable inside corporate network
+                remote_label = "Statistics Portugal / INE"
+            else:
+                remote_base = "https://llm.lab.sspcloud.fr/api/v1"
+                remote_key = os.getenv("SSP_KEY")
+                remote_label = "SSP Cloud"
+            print(
+                f"🔧 Remote embedding with model: {remote_model} at {remote_label} (OpenAI-compatible endpoint)")
             embedding = OpenAIEmbeddings(
                 model=remote_model,
-                openai_api_key=os.getenv('SSP_KEY'),
-                openai_api_base="https://llm.lab.sspcloud.fr/api/v1",
+                openai_api_key=remote_key,
+                openai_api_base=remote_base,
             )
         else:
             # Use local embedding — model weights are cached at module level after first load.
@@ -1394,7 +1452,8 @@ class PDFSummarizer:
                 device = "mps"
             else:
                 device = "cpu"
-            print(f"🔧 Local embedding with model: {embedding_model} (device: {device})")
+            print(
+                f"🔧 Local embedding with model: {embedding_model} (device: {device})")
             embedding = _get_hf_embedding(embedding_model, device)
 
         # Use an isolated in-memory collection per run to avoid cross-document pollution.
@@ -1406,8 +1465,9 @@ class PDFSummarizer:
             )
         except Exception as exc:
             if use_remote_embedding:
+                source_label = "Statistics Portugal (INE)" if remote_embedding_source == "ine" else "SSP Cloud"
                 raise RuntimeError(
-                    "Remote embedding failed — the SSP Cloud embedding endpoint is not "
+                    f"Remote embedding failed — the {source_label} embedding endpoint is not "
                     "available or does not support this model. "
                     "Open 'Summarizer configuration', switch Embeddings to 'Local embedding' "
                     "(BAAI/bge-m3), and run again."
@@ -1415,15 +1475,14 @@ class PDFSummarizer:
             raise
         return vector_store
 
-    def _load_pdf_with_pypdf(self, pdf_path: str) -> str:
+    def _load_pdf_with_pypdf(self, pdf_path: str) -> List[Document]:
         """
         Load PDF using pypdf with better chunking strategy.
         """
-        from langchain_core.documents import Document
-        
+
         loader = PyPDFLoader(pdf_path)
         pages = loader.load()
-        
+
         # Use RecursiveCharacterTextSplitter for better chunking
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,  # Larger chunks
@@ -1431,14 +1490,15 @@ class PDFSummarizer:
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
         )
-        
+
         # Split the pages into better chunks and create Document objects
         splits = []
         for page_idx, page in enumerate(pages):
             page_splits = text_splitter.split_text(page.page_content)
             for split in page_splits:
                 # Create Document objects with metadata
-                metadata = dict(page.metadata) if isinstance(page.metadata, dict) else {}
+                metadata = dict(page.metadata) if isinstance(
+                    page.metadata, dict) else {}
                 raw_page = metadata.get("page")
                 if isinstance(raw_page, int):
                     metadata["page_number"] = raw_page + 1
@@ -1449,30 +1509,30 @@ class PDFSummarizer:
                     metadata=metadata
                 )
                 splits.append(doc)
-        
+
         return splits
 
-    # this is a helper function to suppress the logging of docling, it is used to avoid the verbose output of docling   
+    # this is a helper function to suppress the logging of docling, it is used to avoid the verbose output of docling
     def _suppress_logging(self):
         """
         Context manager to temporarily suppress logging.
         """
         import contextlib
-        
+
         @contextlib.contextmanager
         def suppress_logging():
             # Store original levels
             original_levels = {}
             loggers_to_suppress = [
                 "docling.document_converter",
-                "docling.models.factories", 
+                "docling.models.factories",
                 "docling.utils.accelerator_utils",
                 "docling.pipeline.base_pipeline",
                 "torch.utils.data.dataloader",
                 "chromadb.telemetry.product.posthog",
                 "chromadb.telemetry"
             ]
-            
+
             try:
                 # Set all to ERROR level (suppress INFO and WARNING, keep ERROR)
                 for logger_name in loggers_to_suppress:
@@ -1484,7 +1544,7 @@ class PDFSummarizer:
                 # Restore original levels
                 for logger_name, original_level in original_levels.items():
                     logging.getLogger(logger_name).setLevel(original_level)
-        
+
         return suppress_logging()
 
     def _create_retrieval_chain(self, retriever):
@@ -1492,104 +1552,79 @@ class PDFSummarizer:
         Create a retrieval chain that integrates document retrieval with generation.
         """
         _, string_prompt = self._get_shared_prompts()
-        
+
         # Create the document chain with safe JSON output
         document_chain = create_stuff_documents_chain(
             llm=self.llm,
             prompt=string_prompt,
             output_parser=self._safe_json_parse
         )
-        
+
         # Create the retrieval chain
         retrieval_chain = create_retrieval_chain(
             retriever=retriever,
             combine_docs_chain=document_chain
         )
-        
+
         return retrieval_chain
 
     def _get_shared_prompts(self):
         """
-        Get shared prompts that ensure consistent output format across all modes.
+        Three-layer prompt architecture:
+          inner_system_prompt  — format contract (JSON-only + numerical fidelity). Never changes.
+          instruction_prompt   — behavioural guidance (persona, tone, language). Shown to users; evolves over time.
+          human_prompt         — task driver (output schema + document content). Parametrised per request.
         """
-        # Instruction prompt (this is the one we can tweak, it could be refactored as a parameter)
-        instruction_prompt = """
-        You are a statistician, specialized in reporting, your goal is to summarize the content of documents.
-        You don't add information and you don't make analysis, you just summarize what is already there.
-        You pay special attention not to be biased in your summarizations, stay neutral and follow the spirit and tone present in the document.
-        When outputting in Portuguese, use the European Portuguese.
+        # Format contract — inviolable technical rules. Not shown to users.
+        inner_system_prompt = (
+            "Your responses must be valid JSON only — "
+            "no explanations, markdown, or any text outside the JSON object.\n\n"
+            "Numerical fidelity is absolute: reproduce every number verbatim from the "
+            "source text — same digits, same decimal and thousands separators "
+            "(e.g. \"1.234,56\" stays \"1.234,56\"), same units, same sign. "
+            "Never round, convert, infer, or paraphrase a number. "
+            "If you cannot locate the exact value in the source, omit it."
+        )
 
-        Numerical fidelity is a top priority. Every numeric value you place in the
-        summary (figures, percentages, years, dates, amounts, counts, ratios, ranges,
-        units) must be copied VERBATIM from the provided source text, with the same
-        digits, the same decimal and thousands separators (e.g. keep "1.234,56" as
-        "1.234,56" and "1,234.56" as "1,234.56"), the same units, and the same sign.
-        Do not round, average, convert, recompute, localize or paraphrase a number,
-        even when the surrounding summary is written in another language. If a value
-        is not unambiguously present in the source text, omit it rather than guess.
-        """
+        # Behavioural guidance — defines persona and style. Shown to users and may evolve.
+        instruction_prompt = DEFAULT_INSTRUCTION_PROMPT
 
-        # Inner system prompt (this is fixed)
-        inner_system_prompt = """
-        You are a professional document analyzer. Your task is to:
-        1. Provide a clear and concise summary
-        2. Extract relevant keywords and tags
-        3. Maintain objectivity and accuracy
-        4. Focus on the main points and key findings
-        5. Treat numerical accuracy as critical: any number that appears in the
-           summary must be reproduced verbatim from the provided source text and
-           must remain traceable to it. Never invent, infer, round or recompute
-           a number; if you cannot locate the exact value in the source, omit it.
+        system_message = f"{inner_system_prompt}\n\n{instruction_prompt}"
 
-        CRITICAL: You must respond ONLY with valid JSON. No explanations, no markdown, no additional text - just pure JSON.
-        """
-
-        system_message = f"{inner_system_prompt}\n\n{instruction_prompt}\n\n"
-        
-        # Single human prompt template to avoid duplication.
-        # Keep this prompt tight: only the JSON contract, a brief verbatim-numbers
-        # reminder, an example, and the content. Detailed numeric rules live in
-        # the system message above so they don't leak into the model's response.
-        human_prompt = """You must analyze the content and return ONLY valid JSON. No explanations, no markdown, no preamble, no trailing text - just the JSON object.
-
-Required JSON structure:
+        # Task driver — defines the output schema and delivers the document content.
+        # The brief numeric reminder near the content is intentional: models weight
+        # the end of the prompt strongly, reinforcing the rule from the system message.
+        human_prompt = """Analyse the content below and return a JSON object with this exact structure:
 {{
-    "summary": "comprehensive summary (max {max_words} words, language: {out_lang})",
-    "keywords": ["list of {max_keywords} keywords"],
-    "tags": ["list of {max_tags} tags"]
+    "summary": "... (max {max_words} words, language: {out_lang})",
+    "keywords": ["up to {max_keywords} keywords"],
+    "tags": ["up to {max_tags} tags"]
 }}
 
-Reminder: any number in the summary must be copied verbatim from the source text (same digits, same decimal/thousands separators, same units). Omit numbers you cannot locate verbatim. Full numeric rules are in the system instructions above.
-
-Example valid response:
-{{
-    "summary": "The document discusses air transport statistics showing passenger growth.",
-    "keywords": ["aviation", "statistics", "passengers"],
-    "tags": ["transport", "data"]
-}}
-
-Now analyze this content and respond with the JSON object only:
+Reminder: any number in your summary must be copied verbatim from the source (same digits, separators, units). Omit numbers you cannot locate exactly.
 
 {content}"""
-        
+
         # Chat prompt template (for direct text mode)
         chat_prompt = ChatPromptTemplate.from_messages([
             ("system", system_message),
             ("human", human_prompt)
         ])
-        
+
         # String prompt template (for retrieval chain) - uses same human prompt with different variable names
-        retrieval_human_prompt = human_prompt.replace("{content}", "Context: {context}\n\nUser Question: {input}")
+        retrieval_human_prompt = human_prompt.replace(
+            "{content}", "Context: {context}\n\nUser Question: {input}")
         string_prompt = PromptTemplate(
             template=system_message + retrieval_human_prompt,
-            input_variables=["context", "input", "max_keywords", "max_tags", "max_words", "out_lang"]
+            input_variables=["context", "input", "max_keywords",
+                             "max_tags", "max_words", "out_lang"]
         )
-        
+
         return chat_prompt, string_prompt
 
 
 def main():
-        
+
     # config for the llm
     config = {
         "api_key": os.getenv('SSP_KEY'),
@@ -1598,12 +1633,11 @@ def main():
     # model = "mistral-small3.1:latest", # a bit faster
     # model = "llama3.3:70b",   # a bit better but slower
 
-
     # 1 - create and configure the summarizer
     summarizer = PDFSummarizer(llm_config=config)
-    
+
     # our input file - make it relative to the script's directory
-    file_path = os.path.join(script_dir,"prototype_a", "Aereo.pdf")
+    file_path = os.path.join(script_dir, "prototype_a", "Aereo.pdf")
 
     # result = summarizer.process_pdf(
     #     file_path,
@@ -1622,7 +1656,6 @@ def main():
     print(json.dumps(result, indent=2, ensure_ascii=False))
     print("\n" + "="*80 + "\n")
 
-
     # example of use
     # result = summarizer.process_pdf(
     #     pdf_path="Aereo.pdf",
@@ -1635,6 +1668,5 @@ def main():
     # )
 
 
-
 if __name__ == "__main__":
-    main() 
+    main()
