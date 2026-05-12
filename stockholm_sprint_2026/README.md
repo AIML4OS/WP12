@@ -36,17 +36,6 @@ The draft agenda is available here:
 
 - [agenda.md](agenda.md)
 
-## Meeting notes
-
-Planning meetings before and after the sprint will be documented in the `meeting_notes/` folder when relevant.
-
-The intended structure for meeting notes is lightweight and focuses on:
-
-- agenda items
-- short notes and decisions
-- action points
-- follow-up items
-
 ## Expected outputs
 
 The expected outputs will be refined during the sprint, but may include:
