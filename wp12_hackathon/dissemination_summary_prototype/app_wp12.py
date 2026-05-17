@@ -7,8 +7,10 @@ from summarizer_unified import (
     fetch_llm_models_for_provider,
     probe_ollama_runtime,
     probe_specific_ollama_runtime,
+    probe_ssp_models,
+    prewarm_docling_models,
 )
-from nicegui import ui, run
+from nicegui import app, ui, run
 import threading
 import sys
 import queue
@@ -24,6 +26,17 @@ import logging
 import warnings
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 logging.getLogger("pypdf._reader").setLevel(logging.ERROR)
+
+
+@app.on_startup
+async def _prewarm_docling() -> None:
+    """Load Docling models into memory before the first user request.
+
+    Runs in the NiceGUI thread pool so the event loop is not blocked.
+    The singleton is kept alive for the lifetime of the process, so subsequent
+    PDF uploads pay no model-load cost.
+    """
+    await run.io_bound(prewarm_docling_models)
 
 
 class _StdoutTee:
@@ -676,14 +689,53 @@ OLLAMA_PROBE_STATE: dict = {
     "ok": False,
     "base_url": None,
     "models": [],
+    "embed_models": [],
     "error": None,
 }
 OLLAMA_INE_PROBE_STATE: dict = {
     "ok": False,
     "base_url": "https://ollama.ine.pt",
     "models": [],
+    "embed_models": [],
+    "embed_ok": False,
+    "embed_latency_ms": None,
     "error": None,
 }
+SSP_PROBE_STATE: dict = {
+    "ok": False,
+    "chat_models": [],
+    "embed_models": [],
+    "error": None,
+}
+
+# Flat dict of {radio_key: display_label} for the embedding radio.
+# Keys encode source+model as "source:model" (or "local" for HuggingFace).
+# Rebuilt by _rebuild_embedding_options() after every provider probe.
+EMBEDDING_OPTIONS: dict = {
+    "local": "Local · BAAI/bge-m3 (Hugging Face)",
+}
+
+def _rebuild_embedding_options() -> None:
+    """
+    Rebuild the global EMBEDDING_OPTIONS dict from current probe states.
+
+    Structure of each key: ``"source:model_name"`` (or ``"local"`` for HuggingFace).
+    The dict is ordered: local first, then ssp, ine, ollama — each sorted alphabetically.
+    """
+    EMBEDDING_OPTIONS.clear()
+    EMBEDDING_OPTIONS["local"] = "Local · BAAI/bge-m3 (Hugging Face)"
+
+    for mdl in sorted(SSP_PROBE_STATE.get("embed_models") or []):
+        EMBEDDING_OPTIONS[f"ssp:{mdl}"] = f"SSP Cloud · {mdl}"
+
+    ine_embed = OLLAMA_INE_PROBE_STATE.get("embed_models") or []
+    for mdl in sorted(ine_embed):
+        EMBEDDING_OPTIONS[f"ine:{mdl}"] = f"Statistics Portugal · {mdl}"
+
+    ollama_embed = OLLAMA_PROBE_STATE.get("embed_models") or []
+    for mdl in sorted(ollama_embed):
+        EMBEDDING_OPTIONS[f"ollama:{mdl}"] = f"Local Ollama · {mdl}"
+
 
 PROVIDER_SELECT_OPTIONS_NO_OLLAMA = {
     "ssp": "Remote SSP (SSPCloud)",
@@ -750,6 +802,8 @@ def run_summarization(
     document_loader,
     use_remote_embedding,
     remote_embedding_source,
+    remote_embedding_model,
+    remote_embedding_base_url,
     llm_provider,
     llm_model,
     ollama_base_url,
@@ -793,6 +847,8 @@ def run_summarization(
         embedding_model="BAAI/bge-m3",
         use_remote_embedding=use_remote_embedding,
         remote_embedding_source=remote_embedding_source,
+        remote_embedding_model=remote_embedding_model,
+        remote_embedding_base_url=remote_embedding_base_url,
         max_keywords=max_keywords,
         max_tags=max_tags,
         max_words=max_words,
@@ -998,11 +1054,16 @@ async def handle_summarize(
             return
 
         use_vector = processing_mode_radio.value == 'vector'
-        use_remote = use_vector and embedding_radio.value in ('remote', 'remote_ine')
-        remote_emb_src = (
-            'ine' if use_vector and embedding_radio.value == 'remote_ine'
-            else 'ssp'
-        )
+        _emb_val = (embedding_radio.value or 'local') if use_vector else 'local'
+        if _emb_val == 'local':
+            use_remote = False
+            remote_emb_src = 'ssp'
+            _remote_emb_model = 'BAAI/bge-m3'
+        else:
+            _parts = _emb_val.split(':', 1)
+            remote_emb_src = _parts[0]          # 'ssp', 'ine', or 'ollama'
+            _remote_emb_model = _parts[1] if len(_parts) > 1 else 'qwen3-embedding-8b'
+            use_remote = True
         llm_model = llm_model_select.value
         if not llm_model:
             ui.notify(
@@ -1062,6 +1123,8 @@ async def handle_summarize(
             loader_radio.value,
             use_remote,
             remote_emb_src,
+            _remote_emb_model,
+            current_ollama_base_url() if remote_emb_src == 'ollama' else '',
             provider_select.value,
             llm_model,
             (
@@ -1370,13 +1433,23 @@ def main_page():
                         ui.label('…or use our example PDF:').classes(
                             'text-sm text-gray-600'
                         )
+                        _demo_dir = os.path.join(
+                            os.path.dirname(os.path.abspath(__file__)), 'demo_docs'
+                        )
                         for file_name in demo_files:
-                            ui.button(
-                                file_name,
-                                icon='sym_o_picture_as_pdf',
-                                on_click=lambda _e, _name=file_name: select_demo_pdf(
-                                    _name),
-                            ).props('flat dense no-caps color=primary').classes('px-2 py-1')
+                            with ui.row().classes('items-center gap-0'):
+                                ui.button(
+                                    file_name,
+                                    icon='sym_o_picture_as_pdf',
+                                    on_click=lambda _e, _name=file_name: select_demo_pdf(
+                                        _name),
+                                ).props('flat dense no-caps color=primary').classes('px-2 py-1')
+                                ui.button(
+                                    icon='download',
+                                    on_click=lambda _e, _path=os.path.join(_demo_dir, file_name), _name=file_name: ui.download.file(
+                                        _path, _name,
+                                    ),
+                                ).props('flat dense round color=primary').tooltip(f'Download {file_name}')
                 # else:
                 #    ui.label('No demo PDFs found in demo_docs.').classes(
                 #        'text-sm text-gray-600')
@@ -1592,114 +1665,96 @@ def main_page():
                             await refresh_llm_models_for_provider(provider_select.value or 'ssp', notify=True)
 
                         async def run_ollama_probe_ui(user_hint=None, *, notify: bool = True):
-                            ollama_status_label.set_text(
-                                'Checking local Ollama…')
-                            ollama_status_label.classes(
-                                'text-xs text-slate-600 leading-snug')
-
+                            ollama_status_label.set_text('Checking local Ollama…')
+                            ollama_status_label.classes('text-xs text-slate-600 leading-snug')
                             try:
                                 result = await run.io_bound(probe_ollama_runtime, user_hint)
                             except Exception as ex:
-                                result = {
-                                    'ok': False,
-                                    'base_url': None,
-                                    'models': [],
-                                    'error': str(ex),
-                                }
-
+                                result = {'ok': False, 'base_url': None, 'models': [], 'embed_models': [], 'error': str(ex)}
                             OLLAMA_PROBE_STATE.clear()
                             OLLAMA_PROBE_STATE.update(result)
-
                             if result['ok']:
-                                models = result.get('models') or []
-                                n = len(models)
+                                chat_n = len(result.get('models') or [])
+                                emb_n = len(result.get('embed_models') or [])
                                 ollama_status_label.set_text(
-                                    f'Ollama is running at {result["base_url"]} — {n} model(s) listed.'
+                                    f'Ollama at {result["base_url"]} — {chat_n} chat model(s), {emb_n} embed model(s).'
                                 )
-                                ollama_status_label.classes(
-                                    'text-xs text-emerald-800 leading-snug')
-                                if models:
-                                    provider_models_cache['ollama'] = list(
-                                        models)
+                                ollama_status_label.classes('text-xs text-emerald-800 leading-snug')
+                                if result.get('models'):
+                                    provider_models_cache['ollama'] = list(result['models'])
                                 if notify:
-                                    ui.notify(
-                                        f'Local Ollama OK ({n} models).', type='positive')
+                                    ui.notify(f'Local Ollama OK ({chat_n} chat, {emb_n} embed).', type='positive')
                             else:
-                                msg = result.get(
-                                    'error') or 'Ollama not available.'
+                                msg = result.get('error') or 'Ollama not available.'
                                 ollama_status_label.set_text(msg)
-                                ollama_status_label.classes(
-                                    'text-xs text-red-700 leading-snug')
-                                provider_models_cache['ollama'] = list(
-                                    DEFAULT_LLM_MODELS_FALLBACK['ollama']
-                                )
+                                ollama_status_label.classes('text-xs text-red-700 leading-snug')
+                                provider_models_cache['ollama'] = list(DEFAULT_LLM_MODELS_FALLBACK['ollama'])
                                 if notify:
-                                    ui.notify(
-                                        'Local Ollama is not running or not reachable; option disabled.',
-                                        type='warning',
-                                    )
-
+                                    ui.notify('Local Ollama is not running or not reachable; option disabled.', type='warning')
+                            _rebuild_embedding_options()
+                            _update_embedding_radio()
                             _sync_provider_options_and_model_choice()
                             ollama_status_label.update()
                             refresh_summarizer_summary()
 
                         async def run_ollama_ine_probe_ui(*, notify: bool = True):
-                            ollama_ine_status_label.set_text(
-                                'Checking Statistics Portugal remote Ollama…')
-                            ollama_ine_status_label.classes(
-                                'text-xs text-slate-600 leading-snug')
+                            ollama_ine_status_label.set_text('Checking Statistics Portugal remote Ollama…')
+                            ollama_ine_status_label.classes('text-xs text-slate-600 leading-snug')
                             try:
-                                result = await run.io_bound(
-                                    probe_specific_ollama_runtime, 'https://ollama.ine.pt'
-                                )
+                                result = await run.io_bound(probe_specific_ollama_runtime, 'https://ollama.ine.pt')
                             except Exception as ex:
-                                result = {
-                                    'ok': False,
-                                    'base_url': 'https://ollama.ine.pt',
-                                    'models': [],
-                                    'error': str(ex),
-                                }
-
+                                result = {'ok': False, 'base_url': 'https://ollama.ine.pt', 'models': [], 'embed_models': [], 'embed_ok': False, 'embed_latency_ms': None, 'error': str(ex)}
                             OLLAMA_INE_PROBE_STATE.clear()
                             OLLAMA_INE_PROBE_STATE.update(result)
-
                             if result['ok']:
-                                models = result.get('models') or []
-                                n = len(models)
+                                chat_n = len(result.get('models') or [])
+                                emb_n = len(result.get('embed_models') or [])
+                                lat = result.get('embed_latency_ms')
+                                lat_str = f' · embed {lat:.0f} ms' if lat else ''
                                 ollama_ine_status_label.set_text(
-                                    f'Statistics Portugal Ollama is reachable at {result.get("base_url") or "https://ollama.ine.pt"} — {n} model(s) listed.'
+                                    f'Statistics Portugal Ollama at {result.get("base_url") or "https://ollama.ine.pt"} — '
+                                    f'{chat_n} chat, {emb_n} embed model(s){lat_str}.'
                                 )
-                                ollama_ine_status_label.classes(
-                                    'text-xs text-emerald-800 leading-snug')
-                                if models:
-                                    provider_models_cache['ollama_ine'] = list(
-                                        models)
+                                ollama_ine_status_label.classes('text-xs text-emerald-800 leading-snug')
+                                if result.get('models'):
+                                    provider_models_cache['ollama_ine'] = list(result['models'])
                                 if notify:
-                                    ui.notify(
-                                        f'Statistics Portugal remote Ollama OK ({n} models).', type='positive')
+                                    ui.notify(f'Statistics Portugal Ollama OK ({chat_n} chat, {emb_n} embed).', type='positive')
                             else:
-                                msg = result.get(
-                                    'error') or 'Statistics Portugal remote Ollama not available.'
+                                msg = result.get('error') or 'Statistics Portugal remote Ollama not available.'
                                 ollama_ine_status_label.set_text(msg)
-                                ollama_ine_status_label.classes(
-                                    'text-xs text-red-700 leading-snug')
-                                provider_models_cache['ollama_ine'] = list(
-                                    DEFAULT_LLM_MODELS_FALLBACK['ollama_ine']
-                                )
+                                ollama_ine_status_label.classes('text-xs text-red-700 leading-snug')
+                                provider_models_cache['ollama_ine'] = list(DEFAULT_LLM_MODELS_FALLBACK['ollama_ine'])
                                 if notify:
-                                    ui.notify(
-                                        'Statistics Portugal remote Ollama not reachable from this network; option disabled.',
-                                        type='warning',
-                                    )
-
+                                    ui.notify('Statistics Portugal remote Ollama not reachable from this network; option disabled.', type='warning')
+                            _rebuild_embedding_options()
+                            _update_embedding_radio()
                             _sync_provider_options_and_model_choice()
                             ollama_ine_status_label.update()
+                            refresh_summarizer_summary()
+
+                        async def run_ssp_probe_ui(*, notify: bool = True):
+                            try:
+                                result = await run.io_bound(probe_ssp_models)
+                            except Exception as ex:
+                                result = {'ok': False, 'chat_models': [], 'embed_models': [], 'error': str(ex)}
+                            SSP_PROBE_STATE.clear()
+                            SSP_PROBE_STATE.update(result)
+                            if result['ok']:
+                                chat_n = len(result.get('chat_models') or [])
+                                emb_n = len(result.get('embed_models') or [])
+                                if result.get('chat_models'):
+                                    provider_models_cache['ssp'] = list(result['chat_models'])
+                                if notify:
+                                    ui.notify(f'SSP Cloud OK ({chat_n} chat, {emb_n} embed).', type='positive')
+                            _rebuild_embedding_options()
+                            _update_embedding_radio()
                             refresh_summarizer_summary()
 
                         async def refresh_all_llm_availability_and_models():
                             await run_ollama_probe_ui(notify=False)
                             await run_ollama_ine_probe_ui(notify=False)
-                            await refresh_llm_models_for_provider('ssp', notify=False)
+                            await run_ssp_probe_ui(notify=False)
                             await refresh_llm_models_for_provider('openai', notify=False)
                             if OLLAMA_PROBE_STATE.get('ok'):
                                 await refresh_llm_models_for_provider('ollama', notify=False)
@@ -1720,6 +1775,11 @@ def main_page():
                                 icon='sym_o_network_ping',
                                 on_click=lambda: asyncio.create_task(
                                     run_ollama_ine_probe_ui()),
+                            ).props('outline dense no-caps color=primary').classes('shadow-sm')
+                            ui.button(
+                                'Check SSP Cloud models',
+                                icon='sym_o_network_ping',
+                                on_click=lambda: asyncio.create_task(run_ssp_probe_ui()),
                             ).props('outline dense no-caps color=primary').classes('shadow-sm')
                             ui.button(
                                 'Refresh models',
@@ -1770,30 +1830,34 @@ def main_page():
                         ui.label('Embeddings (vector retrieval)').classes(
                             'text-xs font-semibold uppercase tracking-wide text-indigo-900/80'
                         )
-                        ui.label('Chunks are embedded and stored in ChromaDB.').classes(
-                            'text-xs text-slate-500 leading-snug -mt-1 mb-1'
-                        )
+                        ui.label(
+                            'Chunks are embedded and stored in ChromaDB. '
+                            'Use "Refresh all" to discover remote models.'
+                        ).classes('text-xs text-slate-500 leading-snug -mt-1 mb-1')
+
                         with ui.column().classes(
                             'summarizer-radio-stack w-full rounded-xl bg-indigo-50/50 px-3 py-1 '
                             'border border-indigo-100/90'
                         ):
+                            # Start with only the always-available local option.
+                            # _update_embedding_radio() will extend this after probes.
                             embedding_radio = ui.radio(
-                                {
-                                    'local': (
-                                        'Local embedding\n'
-                                        'BAAI/bge-m3 via Hugging Face on this machine.'
-                                    ),
-                                    'remote': (
-                                        'Remote embedding (SSP Cloud)\n'
-                                        'qwen3-embedding-8b via the SSP Cloud embedding endpoint.'
-                                    ),
-                                    'remote_ine': (
-                                        'Remote embedding (Statistics Portugal)\n'
-                                        'qwen3-embedding-8b via the INE embedding endpoint.'
-                                    ),
-                                },
-                                value='remote',
+                                dict(EMBEDDING_OPTIONS),
+                                value='local',
                             ).props('vertical')
+
+                        def _update_embedding_radio():
+                            """Sync embedding_radio options from EMBEDDING_OPTIONS."""
+                            prev = embedding_radio.value
+                            embedding_radio.options = dict(EMBEDDING_OPTIONS)
+                            # Keep previous selection if still valid, else fall back to local
+                            if prev not in EMBEDDING_OPTIONS:
+                                embedding_radio.value = 'local'
+                            embedding_radio.update()
+
+                        embedding_radio.on_value_change(
+                            lambda _: refresh_summarizer_summary()
+                        )
 
                     def sync_embedding_visibility():
                         embedding_section.set_visibility(
@@ -1848,12 +1912,15 @@ def main_page():
                     summarizer_summary_mode_label.update()
                     summarizer_summary_loader_label.update()
                     if mode == 'vector':
-                        if embedding_radio.value == 'local':
+                        _ev = embedding_radio.value or 'local'
+                        if _ev == 'local':
                             emb_txt = 'Local (BAAI/bge-m3)'
-                        elif embedding_radio.value == 'remote_ine':
-                            emb_txt = 'Remote/INE (qwen3-embedding-8b)'
                         else:
-                            emb_txt = 'Remote/SSP (qwen3-embedding-8b)'
+                            _eparts = _ev.split(':', 1)
+                            _esrc = _eparts[0]
+                            _emdl = _eparts[1] if len(_eparts) > 1 else '?'
+                            _src_label = {'ssp': 'SSP', 'ine': 'INE', 'ollama': 'Ollama'}.get(_esrc, _esrc.upper())
+                            emb_txt = f'{_src_label} ({_emdl})'
                         summarizer_summary_embeddings_label.set_text(
                             f'Embeddings: {emb_txt}')
                         summarizer_summary_embeddings_label.update()

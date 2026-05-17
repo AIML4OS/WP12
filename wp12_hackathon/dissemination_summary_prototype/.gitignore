@@ -1,3 +1,4 @@
 .env
 .conda
 chroma_db/
+.cache/

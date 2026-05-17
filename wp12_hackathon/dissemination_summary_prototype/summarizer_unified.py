@@ -1,6 +1,30 @@
 # this is a unified summarizer that has parameters for the different summarizers
 
-# Load environment variables FIRST, before any other imports
+# ---------------------------------------------------------------------------
+# IMPORTANT: load .env and create cache directories BEFORE any other import.
+# HuggingFace, PyTorch, Docling and sentence-transformers all read their cache
+# paths from environment variables at *import time*.  If their packages are
+# imported first, they lock in ~/.cache/... defaults and never see HF_HOME /
+# TORCH_HOME / DOCLING_ARTIFACTS_PATH even though load_dotenv runs later.
+# ---------------------------------------------------------------------------
+import os
+from dotenv import load_dotenv
+
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_script_dir, '.env'), override=True)
+
+# Create cache folders so libraries never silently fall back to ~/
+for _cache_env_var in ("HF_HOME", "DOCLING_ARTIFACTS_PATH", "TORCH_HOME"):
+    _cache_path = os.environ.get(_cache_env_var, "").strip()
+    if _cache_path:
+        os.makedirs(_cache_path, exist_ok=True)
+_hf_home = os.environ.get("HF_HOME", "").strip()
+if _hf_home:
+    os.makedirs(os.path.join(_hf_home, "sentence_transformers"), exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# All other imports follow — cache env vars are now set and visible to them.
+# ---------------------------------------------------------------------------
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 import requests
 from openai import AuthenticationError
@@ -25,17 +49,10 @@ from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from typing import List, Dict, Optional, Any, Tuple, Set
+from pydantic import SecretStr
 import re
 import time
 import warnings
-from dotenv import load_dotenv
-import os
-
-# Get the directory where this script is located
-script_dir = os.path.dirname(os.path.abspath(__file__))
-# Load .env from the script's directory, not the current working directory.
-# override=True ensures stale shell-exported SSP_KEY values do not shadow .env.
-load_dotenv(os.path.join(script_dir, '.env'), override=True)
 
 
 def _env_float(key: str, default: float) -> float:
@@ -161,23 +178,116 @@ _HYBRID_CHUNKER_CACHE: Dict[str, Any] = {}
 
 
 def _get_hf_embedding(model_name: str, device: str) -> Any:
-    """Return a cached HuggingFaceEmbeddings instance (loaded once per model+device pair)."""
+    """Return a cached HuggingFaceEmbeddings instance (loaded once per model+device pair).
+
+    Model weights are stored in ``$HF_HOME/sentence_transformers`` so they share
+    the same unified cache tree as the HuggingFace Hub downloads.  The folder is
+    created at module load time (see the makedirs block above).
+    """
     key = (model_name, device)
     if key not in _HF_EMBEDDING_CACHE:
+        hf_home = os.environ.get("HF_HOME", "").strip()
+        cache_folder = os.path.join(hf_home, "sentence_transformers") if hf_home else None
         _HF_EMBEDDING_CACHE[key] = HuggingFaceEmbeddings(
             model_name=model_name,
             model_kwargs={"device": device},
             encode_kwargs={"normalize_embeddings": True},
+            cache_folder=cache_folder,
         )
     return _HF_EMBEDDING_CACHE[key]
 
 
 def _get_docling_converter() -> Any:
-    """Return the module-level DocumentConverter singleton (created once per process)."""
+    """Return the module-level DocumentConverter singleton (created once per process).
+
+    When ``DOCLING_ARTIFACTS_PATH`` is set this function ensures models are fully
+    downloaded there *before* building the converter in offline mode — so the
+    "downloads disabled" error can never occur, even if a user submits a PDF while
+    the startup pre-warm is still running.
+
+    Performance knobs (all controlled via .env / environment variables):
+
+    ``DOCLING_ARTIFACTS_PATH``  – offline mode: download/load models from this folder.
+                                  Safe to call concurrently; download is idempotent.
+
+    ``DOCLING_DO_OCR``          – set to ``true`` to enable EasyOCR (default: false).
+                                  OCR is the single biggest contributor to slow chunking
+                                  (~40-60 s on CPU) and is unnecessary for native-text PDFs.
+
+    ``DOCLING_TABLE_MODE``      – ``fast`` (default) or ``accurate``.
+    """
     global _DOCLING_CONVERTER_INSTANCE
     if _DOCLING_CONVERTER_INSTANCE is None:
-        _DOCLING_CONVERTER_INSTANCE = DocumentConverter()
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
+        from docling.document_converter import PdfFormatOption
+
+        do_ocr = os.environ.get("DOCLING_DO_OCR", "false").strip().lower() == "true"
+        table_mode_raw = os.environ.get("DOCLING_TABLE_MODE", "fast").strip().lower()
+        table_mode = TableFormerMode.ACCURATE if table_mode_raw == "accurate" else TableFormerMode.FAST
+
+        from pathlib import Path
+        artifacts_path_raw = os.environ.get("DOCLING_ARTIFACTS_PATH", "").strip() or None
+        # Use pathlib for normalisation — handles forward/back slashes and double
+        # separators consistently on all platforms.
+        artifacts_path = str(Path(artifacts_path_raw)) if artifacts_path_raw else None
+
+        if artifacts_path:
+            from docling.utils.model_downloader import download_models
+            import importlib.metadata
+            _ap = Path(artifacts_path)
+            _marker = _ap / ".docling_version"
+            try:
+                _installed_ver = importlib.metadata.version("docling")
+            except importlib.metadata.PackageNotFoundError:
+                _installed_ver = "unknown"
+            _cached_ver = _marker.read_text().strip() if _marker.exists() else ""
+            # Download only when the cache is empty or the docling version has changed
+            # (e.g. after `pip install --upgrade docling`).  Skip entirely otherwise so
+            # we never make network calls on a warm start.
+            if not _ap.exists() or not _cached_ver or _cached_ver != _installed_ver:
+                print(f"🔄 Docling: downloading models (v{_installed_ver}) → {artifacts_path}")
+                _ap.mkdir(parents=True, exist_ok=True)
+                download_models(output_dir=_ap, progress=True)
+                _marker.write_text(_installed_ver)
+                print(f"   ✓ Models ready (v{_installed_ver})")
+
+        pipeline_options = PdfPipelineOptions(
+            do_ocr=do_ocr,
+            do_table_structure=True,
+            artifacts_path=artifacts_path,
+        )
+        pipeline_options.table_structure_options.mode = table_mode
+
+        _DOCLING_CONVERTER_INSTANCE = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+            }
+        )
+
+        mode_tag = f"🔒 offline ({artifacts_path_raw})" if artifacts_path else "🌐 online (default cache)"
+        ocr_tag = "OCR=on" if do_ocr else "OCR=off"
+        tbl_tag = f"tables={table_mode_raw}"
+        print(f"⚙️  Docling converter ready — {mode_tag} | {ocr_tag} | {tbl_tag}")
     return _DOCLING_CONVERTER_INSTANCE
+
+
+def prewarm_docling_models() -> None:
+    """Eagerly load Docling models into memory before the first user request.
+
+    Delegates entirely to ``_get_docling_converter()`` which handles both the
+    download (if needed) and the converter initialisation in the correct order.
+    Calling this at startup means the singleton is warm before any PDF arrives.
+
+    The function is intentionally blocking so it can be offloaded to a thread pool
+    (e.g. ``await run.io_bound(prewarm_docling_models)`` in NiceGUI).
+    """
+    _get_docling_converter()
+    _get_hybrid_chunker("BAAI/bge-m3")
+    artifacts_path = os.environ.get("DOCLING_ARTIFACTS_PATH", "").strip() or None
+    from pathlib import Path
+    mode = f"offline ({Path(artifacts_path)})" if artifacts_path else "online"
+    print(f"✅ Docling pre-warm complete ({mode})")
 
 
 def _get_hybrid_chunker(tokenizer: str) -> Any:
@@ -251,29 +361,80 @@ def _format_ollama_probe_error(
     return f"Could not reach {base_url} ({exc.__class__.__name__})."
 
 
-def _ollama_chat_model_names_from_tags_body(body: Any) -> List[str]:
+def _is_embedding_model(name: str, family: str = "") -> bool:
     """
-    Parse GET /api/tags JSON. Each row may include ``name``, ``model``, and ``details``.
+    Return True if the model is embedding-only (not suitable for chat/reasoning).
 
-    Omits typical embedding-only pulls from the chat dropdown (e.g. ``nomic-embed-text``).
+    Checks the model name for known embedding keywords and the Ollama ``details.family``
+    field for known embedding families.
+    """
+    low = name.lower()
+    fam = family.lower()
+    if fam in ("nomic-bert", "bert"):
+        return True
+    embed_tokens = ("embed", "e5-", "bge-", "gte-", "text-embedding-")
+    return any(tok in low for tok in embed_tokens)
+
+
+def _split_ollama_tags_body(body: Any) -> tuple:
+    """
+    Parse GET /api/tags JSON and split models into (chat_models, embed_models).
+
+    Returns a tuple of two sorted lists of model name strings.
     """
     if not isinstance(body, dict):
-        return []
-    names: List[str] = []
+        return [], []
+    chat: List[str] = []
+    embed: List[str] = []
     for row in body.get("models") or []:
         if not isinstance(row, dict):
             continue
         label = (row.get("name") or row.get("model") or "").strip()
         if not label:
             continue
-        low = label.lower()
         details_raw = row.get("details")
         details: dict = details_raw if isinstance(details_raw, dict) else {}
         family = (details.get("family") or "").lower()
-        if "embed" in low or family == "nomic-bert":
+        if _is_embedding_model(label, family):
+            embed.append(label)
+        else:
+            chat.append(label)
+    return sorted(set(chat)), sorted(set(embed))
+
+
+def _split_openai_models_body(payload: Any) -> tuple:
+    """
+    Parse an OpenAI-compatible GET /v1/models response and split into
+    (chat_models, embed_models).
+    """
+    if not isinstance(payload, dict):
+        return [], []
+    rows = payload.get("data") or payload.get("models") or []
+    chat: List[str] = []
+    embed: List[str] = []
+    for row in rows:
+        if isinstance(row, str):
+            mid = row
+        elif isinstance(row, dict):
+            mid = (row.get("id") or row.get("name") or "").strip()
+        else:
             continue
-        names.append(label)
-    return sorted(set(names))
+        if not mid:
+            continue
+        if _is_embedding_model(mid):
+            embed.append(mid)
+        else:
+            chat.append(mid)
+    return sorted(set(chat)), sorted(set(embed))
+
+
+def _ollama_chat_model_names_from_tags_body(body: Any) -> List[str]:
+    """
+    Parse GET /api/tags JSON and return only chat-capable model names.
+    Embedding-only models are filtered out.
+    """
+    chat, _ = _split_ollama_tags_body(body)
+    return chat
 
 
 def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, Any]:
@@ -310,11 +471,12 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
             rt = _ollama_http_get(f"{base}/api/tags", timeout=25)
             if rt.status_code == 200:
                 body = rt.json()
-                models = _ollama_chat_model_names_from_tags_body(body)
+                chat_models, embed_models = _split_ollama_tags_body(body)
                 return {
                     "ok": True,
                     "base_url": base,
-                    "models": models,
+                    "models": chat_models,
+                    "embed_models": embed_models,
                     "error": None,
                 }
             tags_note = f"/api/tags HTTP {rt.status_code}"
@@ -332,6 +494,7 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
                         "ok": True,
                         "base_url": base,
                         "models": [],
+                        "embed_models": [],
                         "error": None,
                     }
             ver_note = f"/api/version HTTP {rv.status_code}"
@@ -346,15 +509,19 @@ def probe_ollama_runtime(preferred_base_url: Optional[str] = None) -> Dict[str, 
         "ok": False,
         "base_url": None,
         "models": [],
+        "embed_models": [],
         "error": last_err
         or "Ollama not reachable — install from https://ollama.com and run `ollama serve` (or ensure it is running).",
     }
 
 
-def probe_specific_ollama_runtime(base_url: str) -> Dict[str, Any]:
+def probe_specific_ollama_runtime(base_url: str, timeout: int = 25) -> Dict[str, Any]:
     """
     Probe exactly one Ollama endpoint (no localhost fallback discovery).
-    Useful for fixed remote instances, such as corporate endpoints.
+
+    Returns both ``models`` (chat-capable) and ``embed_models`` (embedding-only).
+    Also attempts a quick embedding test against the first embedding model found, so
+    callers can confirm the /v1/embeddings endpoint is live.
     """
     base = (base_url or "").strip().rstrip("/")
     if not base:
@@ -362,71 +529,197 @@ def probe_specific_ollama_runtime(base_url: str) -> Dict[str, Any]:
             "ok": False,
             "base_url": None,
             "models": [],
+            "embed_models": [],
+            "embed_ok": False,
+            "embed_latency_ms": None,
             "error": "Missing Ollama base URL.",
         }
 
+    chat_models: List[str] = []
+    embed_models: List[str] = []
     tags_note = ""
     tags_user_error = ""
+
+    # 1 — try /api/tags (Ollama native)
     try:
-        rt = _ollama_http_get(f"{base}/api/tags", timeout=25)
+        rt = _ollama_http_get(f"{base}/api/tags", timeout=timeout)
         if rt.status_code == 200:
-            body = rt.json()
-            models = _ollama_chat_model_names_from_tags_body(body)
-            return {
-                "ok": True,
-                "base_url": base,
-                "models": models,
-                "error": None,
-            }
-        tags_note = f"/api/tags HTTP {rt.status_code}"
+            chat_models, embed_models = _split_ollama_tags_body(rt.json())
+        else:
+            tags_note = f"/api/tags HTTP {rt.status_code}"
     except requests.exceptions.RequestException as e:
-        tags_user_error = _format_ollama_probe_error(
-            e, base_url=base, is_remote_corporate=True
-        )
-        tags_note = (
-            "/api/tags: "
-            + tags_user_error
-        )
+        tags_user_error = _format_ollama_probe_error(e, base_url=base, is_remote_corporate=True)
+        tags_note = "/api/tags: " + tags_user_error
     except Exception as e:
         tags_note = f"/api/tags: {e}"
 
+    # 2 — fall back to /api/version if tags failed (Ollama native)
+    ver_note = ""
     ver_user_error = ""
-    try:
-        rv = _ollama_http_get(f"{base}/api/version", timeout=8)
-        if rv.status_code == 200:
-            data = rv.json()
-            if isinstance(data, dict) and data.get("version"):
-                return {
-                    "ok": True,
-                    "base_url": base,
-                    "models": [],
-                    "error": None,
-                }
-        ver_note = f"/api/version HTTP {rv.status_code}"
-    except requests.exceptions.RequestException as e:
-        ver_user_error = _format_ollama_probe_error(
-            e, base_url=base, is_remote_corporate=True
-        )
-        ver_note = (
-            "/api/version: "
-            + ver_user_error
-        )
-    except Exception as e:
-        ver_note = f"/api/version: {e}"
+    endpoint_reachable = bool(chat_models or embed_models or not tags_note)
+    if not endpoint_reachable:
+        try:
+            rv = _ollama_http_get(f"{base}/api/version", timeout=8)
+            if rv.status_code == 200:
+                data = rv.json()
+                endpoint_reachable = isinstance(data, dict) and bool(data.get("version"))
+            else:
+                ver_note = f"/api/version HTTP {rv.status_code}"
+        except requests.exceptions.RequestException as e:
+            ver_user_error = _format_ollama_probe_error(e, base_url=base, is_remote_corporate=True)
+            ver_note = "/api/version: " + ver_user_error
+        except Exception as e:
+            ver_note = f"/api/version: {e}"
 
-    if tags_user_error and ver_user_error and tags_user_error == ver_user_error:
+    # 3 — OpenAI-compatible /v1/models fallback.
+    # Endpoints that only expose the OpenAI API (e.g. https://ollama.ine.pt) won't answer
+    # /api/tags or /api/version.  Try /v1/models before giving up.
+    openai_note = ""
+    if not chat_models and not embed_models:
+        try:
+            ro = requests.get(
+                f"{base}/v1/models",
+                headers={"Authorization": "Bearer nokeyneeded"},
+                timeout=timeout,
+            )
+            if ro.status_code == 200:
+                chat_models, embed_models = _split_openai_models_body(ro.json())
+                endpoint_reachable = True
+            else:
+                openai_note = f"/v1/models HTTP {ro.status_code}"
+        except requests.exceptions.ConnectionError as e:
+            openai_note = _format_ollama_probe_error(e, base_url=base, is_remote_corporate=True)
+        except requests.exceptions.Timeout:
+            openai_note = f"/v1/models timed out after {timeout}s."
+        except Exception as e:
+            openai_note = f"/v1/models: {e}"
+
+    if not endpoint_reachable and not chat_models and not embed_models:
+        # Collect the most descriptive error we have
+        if tags_user_error and ver_user_error and tags_user_error == ver_user_error:
+            err = tags_user_error
+        elif openai_note:
+            err = openai_note
+        elif tags_user_error:
+            err = tags_user_error
+        else:
+            parts = [p for p in [tags_note, ver_note, openai_note] if p]
+            err = f"{base}: " + "; ".join(parts) if parts else "Endpoint unreachable."
         return {
             "ok": False,
             "base_url": None,
             "models": [],
-            "error": tags_user_error,
+            "embed_models": [],
+            "embed_ok": False,
+            "embed_latency_ms": None,
+            "error": err,
         }
 
+    # 3 — quick embedding test (best-effort, non-blocking failure)
+    embed_ok = False
+    embed_latency_ms: Optional[float] = None
+    test_model: Optional[str] = embed_models[0] if embed_models else None
+    if test_model:
+        try:
+            t0 = time.perf_counter()
+            re = requests.post(
+                f"{base}/v1/embeddings",
+                headers={"Authorization": "Bearer nokeyneeded", "Content-Type": "application/json"},
+                json={"model": test_model, "input": "probe"},
+                timeout=15,
+            )
+            embed_latency_ms = (time.perf_counter() - t0) * 1000
+            if re.status_code == 200:
+                body = re.json()
+                data = body.get("data") or []
+                embed_ok = bool(data and isinstance(data[0], dict) and data[0].get("embedding"))
+        except Exception:
+            pass  # embed test failure doesn't prevent the probe from succeeding overall
+
+    return {
+        "ok": True,
+        "base_url": base,
+        "models": chat_models,
+        "embed_models": embed_models,
+        "embed_ok": embed_ok,
+        "embed_latency_ms": embed_latency_ms,
+        "error": None,
+    }
+
+
+def probe_ssp_models(api_key: Optional[str] = None, timeout: int = 20) -> Dict[str, Any]:
+    """
+    Query the SSP Cloud OpenAI-compatible endpoint for available models and split them
+    into chat-capable and embedding-only groups.
+
+    Returns a dict with keys:
+      ok           (bool)
+      chat_models  (List[str])
+      embed_models (List[str])
+      error        (str|None)
+    """
+    key = api_key or os.getenv("SSP_KEY") or ""
+    candidate_bases = [
+        "https://llm.lab.sspcloud.fr/api/v1",
+        "https://llm.lab.sspcloud.fr/v1",
+    ]
+    last_err: Optional[str] = None
+    for base in candidate_bases:
+        try:
+            r = requests.get(
+                f"{base}/models",
+                headers={"Authorization": f"Bearer {key}"} if key else {},
+                timeout=timeout,
+            )
+            if r.status_code == 200:
+                chat_models, embed_models = _split_openai_models_body(r.json())
+                return {
+                    "ok": True,
+                    "chat_models": chat_models,
+                    "embed_models": embed_models,
+                    "error": None,
+                }
+            last_err = f"GET /v1/models HTTP {r.status_code}"
+        except requests.exceptions.ConnectionError as exc:
+            last_err = f"Cannot reach SSP Cloud: {exc.__class__.__name__}"
+        except requests.exceptions.Timeout:
+            last_err = f"SSP Cloud timed out after {timeout}s."
+        except Exception as exc:
+            last_err = f"SSP Cloud probe failed: {exc}"
     return {
         "ok": False,
-        "base_url": None,
-        "models": [],
-        "error": f"{base}: {tags_note}; {ver_note}",
+        "chat_models": [],
+        "embed_models": [],
+        "error": last_err or "SSP Cloud unreachable.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Legacy function — kept for backwards compatibility but superseded by
+# probe_specific_ollama_runtime which now returns embed_models too.
+# ---------------------------------------------------------------------------
+def probe_ine_embedding_endpoint(
+    base_url: str = "https://ollama.ine.pt",
+    timeout: int = 20,
+) -> Dict[str, Any]:
+    """
+    Thin wrapper around probe_specific_ollama_runtime that returns a result
+    compatible with the old INE_EMBEDDING_PROBE_STATE schema.
+    Prefer probe_specific_ollama_runtime for new code.
+    """
+    result = probe_specific_ollama_runtime(base_url, timeout=timeout)
+    embed_models = result.get("embed_models") or []
+    tested = None
+    latency = result.get("embed_latency_ms")
+    if embed_models:
+        tested = embed_models[0]
+    return {
+        "ok": result["ok"] and bool(embed_models),
+        "base_url": result.get("base_url") or base_url,
+        "models": embed_models,
+        "tested_model": tested,
+        "latency_ms": latency,
+        "error": result.get("error"),
     }
 
 
@@ -1151,7 +1444,7 @@ class PDFSummarizer:
                 # model=kwargs.get("model", "mistral-small3.2:latest"),
                 model=kwargs.get("model", "qwen3-6-35b-moe"),
                 temperature=kwargs.get("temperature", 0.7),
-                request_timeout=llm_timeout,
+                timeout=llm_timeout,
                 max_retries=llm_retries,
             )
         else:
@@ -1171,7 +1464,7 @@ class PDFSummarizer:
         raise exc
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}, remote_embedding_source: {remote_embedding_source}")
-    def process_pdf(self, pdf_path: str, use_vector_store: bool = False, document_loader: str = "docling", embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = False, remote_embedding_source: str = "ssp", max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
+    def process_pdf(self, pdf_path: str, use_vector_store: bool = False, document_loader: str = "docling", embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = False, remote_embedding_source: str = "ssp", remote_embedding_model: str = "qwen3-embedding-8b", remote_embedding_base_url: str = "", max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
         """
         Process a PDF file and return a summary.
         """
@@ -1213,7 +1506,10 @@ class PDFSummarizer:
             # Each call gets a fresh, isolated in-memory collection (unique name).
             # The embedding model itself is stateless and safely reused via the module cache.
             vector_store = self._get_vector_store(
-                chunks, embedding_model, use_remote_embedding, remote_embedding_source)
+                chunks, embedding_model, use_remote_embedding, remote_embedding_source,
+                remote_embedding_model=remote_embedding_model,
+                remote_embedding_base_url=remote_embedding_base_url,
+            )
             retriever = vector_store.as_retriever(search_kwargs={"k": 10})
             retrieval_chain = self._create_retrieval_chain(retriever)
             timing["vector_store"] = time.perf_counter() - t1
@@ -1415,25 +1711,37 @@ class PDFSummarizer:
             msg,
         )
 
-    def _get_vector_store(self, splits: List[Document], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True, remote_embedding_source: str = "ssp") -> Chroma:
+    def _get_vector_store(self, splits: List[Document], embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = True, remote_embedding_source: str = "ssp", remote_embedding_model: str = "qwen3-embedding-8b", remote_embedding_base_url: str = "") -> Chroma:
         """
         Create vector store with local or remote embeddings.
 
         Remote embedding uses an OpenAI-compatible /v1/embeddings endpoint.
-        ``remote_embedding_source`` selects which remote endpoint to use:
-          - ``"ssp"``  – SSP Cloud (https://llm.lab.sspcloud.fr/api/v1), key: SSP_KEY
-          - ``"ine"``  – Statistics Portugal (https://ollama.ine.pt/v1), key: INE_KEY
-        If the remote endpoint is unavailable the call raises a descriptive
-        RuntimeError telling the user to switch to Local embedding instead.
+        ``remote_embedding_source`` selects the endpoint:
+          - ``"ssp"``    – SSP Cloud (https://llm.lab.sspcloud.fr/api/v1), key: SSP_KEY
+          - ``"ine"``    – Statistics Portugal (https://ollama.ine.pt/v1), no auth
+          - ``"ollama"`` – Local Ollama OpenAI-compat endpoint; URL from
+                           ``remote_embedding_base_url`` or OLLAMA_BASE_URL env var
+        ``remote_embedding_model`` – model name to request; applies to all remote sources.
+        If the remote endpoint is unavailable the call raises a descriptive RuntimeError.
         """
         if use_remote_embedding:
             from langchain_openai import OpenAIEmbeddings
-            remote_model = "qwen3-embedding-8b"
             if remote_embedding_source == "ine":
+                remote_model = remote_embedding_model
                 remote_base = "https://ollama.ine.pt/v1"
-                remote_key = "nokeyneeded"  # no auth required; only reachable inside corporate network
+                remote_key = "nokeyneeded"
                 remote_label = "Statistics Portugal / INE"
+            elif remote_embedding_source == "ollama":
+                remote_model = remote_embedding_model
+                ollama_base = (
+                    remote_embedding_base_url.strip()
+                    or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip()
+                ).rstrip("/")
+                remote_base = f"{ollama_base}/v1"
+                remote_key = "nokeyneeded"
+                remote_label = f"Local Ollama ({ollama_base})"
             else:
+                remote_model = remote_embedding_model
                 remote_base = "https://llm.lab.sspcloud.fr/api/v1"
                 remote_key = os.getenv("SSP_KEY")
                 remote_label = "SSP Cloud"
@@ -1441,8 +1749,8 @@ class PDFSummarizer:
                 f"🔧 Remote embedding with model: {remote_model} at {remote_label} (OpenAI-compatible endpoint)")
             embedding = OpenAIEmbeddings(
                 model=remote_model,
-                openai_api_key=remote_key,
-                openai_api_base=remote_base,
+                api_key=SecretStr(remote_key) if remote_key else None,
+                base_url=remote_base,
             )
         else:
             # Use local embedding — model weights are cached at module level after first load.
@@ -1557,8 +1865,7 @@ class PDFSummarizer:
         document_chain = create_stuff_documents_chain(
             llm=self.llm,
             prompt=string_prompt,
-            output_parser=self._safe_json_parse
-        )
+        ) | self._safe_json_parse
 
         # Create the retrieval chain
         retrieval_chain = create_retrieval_chain(
@@ -1637,7 +1944,7 @@ def main():
     summarizer = PDFSummarizer(llm_config=config)
 
     # our input file - make it relative to the script's directory
-    file_path = os.path.join(script_dir, "prototype_a", "Aereo.pdf")
+    file_path = os.path.join(_script_dir, "prototype_a", "Aereo.pdf")
 
     # result = summarizer.process_pdf(
     #     file_path,
