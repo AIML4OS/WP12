@@ -1,0 +1,14 @@
+name: ollama_pypdf_plain_local
+repeat: 1
+options:
+  processing_mode: plain
+  pdf_loader: pypdf
+  embedding: local
+  llm_endpoint: http://localhost:11434
+  llm_model: llama3.1:8b
+  out_lang: pt-pt
+  max_words: 200
+  max_keywords: 6
+  max_tags: 5
+  temperature: 0.0
+  use_cache: false

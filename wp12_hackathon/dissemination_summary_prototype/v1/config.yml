@@ -1,0 +1,68 @@
+# v1 summarizer configuration
+# All fields are optional — the summarizer runs with these defaults even if this file is deleted.
+
+cache_dir: .cache
+
+defaults:
+  out_lang: pt-pt
+  max_words: 200
+  max_keywords: 6
+  max_tags: 5
+  processing_mode: vector   # vector | plain
+  pdf_loader: docling        # docling | pypdf
+  embedding: remote          # remote (prefer endpoint) | local | <endpoint url>::<model>
+  llm:
+    timeout_sec: 600
+    max_retries: 2
+  temperature: 0.0
+
+docling:
+  do_ocr: false
+  # OCR engine (only active when do_ocr: true)
+  #   rapidocr — ONNX models bundled in pip package, zero extra download, fastest on CPU
+  #   easyocr  — better multilingual accuracy; models download ~200 MB on first use
+  #   tesseract — system binary required (apt/brew install tesseract) + TESSDATA_PREFIX env var
+  ocr_engine: rapidocr       # rapidocr | easyocr | tesseract
+  table_mode: fast           # fast | accurate
+  convert_timeout_sec: 900
+
+local_embedding:
+  model: BAAI/bge-m3
+
+bench:
+  pdfs_dir: bench/pdfs
+  configs_dir: bench/configs
+  runs_dir: bench/runs
+  stability_repeat: 2
+
+instruction_prompt: |
+  You are a statistician specializing in reporting; your goal is to summarize the content of documents.
+  You must not add information or make analysis; only summarize what is already present.
+  Pay special attention to avoiding bias in your summaries; remain neutral. Follow the spirit and tone of the documents.
+  Use European Portuguese for Portuguese output and American English for English output.
+  Strive for eloquence while remaining accessible in the target language.
+
+endpoints:
+  - url: https://llm.lab.sspcloud.fr/api
+    id: ssp
+    name: SSP Cloud
+    auth_env: SSP_KEY
+    auth_help: "Set SSP_KEY in .env — get it from the SSP Cloud portal."
+    network_hint: "Reachable from any internet connection."
+
+  - url: http://localhost:11434
+    id: ollama_local
+    name: Ollama (local)
+    network_hint: "Requires Ollama running locally: https://ollama.com"
+
+  - url: https://ollama.ine.pt
+    id: ine
+    name: Statistics Portugal (INE)
+    network_hint: "Only reachable on the INE corporate network / VPN."
+
+  - url: https://api.openai.com
+    id: openai
+    name: OpenAI
+    auth_env: OPENAI_API_KEY
+    auth_help: "Set OPENAI_API_KEY in .env"
+    network_hint: "Reachable from any internet connection."

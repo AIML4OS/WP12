@@ -1,0 +1,15 @@
+name: ssp_docling_vector_remote_ssp
+repeat: 1
+options:
+  processing_mode: vector
+  pdf_loader: docling
+  # Use SSP embedding endpoint (embed model must be available on the SSP endpoint)
+  embedding: https://llm.lab.sspcloud.fr/api
+  llm_endpoint: https://llm.lab.sspcloud.fr/api
+  llm_model: qwen3-6-35b-moe
+  out_lang: pt-pt
+  max_words: 200
+  max_keywords: 6
+  max_tags: 5
+  temperature: 0.1
+  use_cache: false

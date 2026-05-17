@@ -1,0 +1,50 @@
+# v1 requirements — LangChain 1.x stack, Python 3.12
+# Install: pip install -r requirements.txt
+#
+# Python version: 3.12  (avoid 3.13 — numpy/docling numpy-version conflict)
+# LangChain: 1.x        (1.0 GA Oct 2025; langchain-docling 2.0 needs langchain-core ~=1.0)
+# Docling:   2.26+      (required by langchain-docling 2.0; latest tested: 2.93)
+#
+# For GPU support run afterwards:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# --- LangChain 1.x core ---
+langchain>=1.0
+langchain-core>=1.0
+langchain-text-splitters>=0.3
+langchain-community>=0.3
+
+# --- LangChain integrations ---
+langchain-openai>=0.3
+langchain-ollama>=1.0
+langchain-chroma>=0.2
+langchain-huggingface>=0.1
+langchain-docling>=2.0
+
+# --- Document processing ---
+# easyocr           : multilingual, models cached in .cache/easyocr/ (~200 MB on first use)
+# rapidocr-onnxruntime : ONNX models bundled in the pip package — zero extra download, fastest on CPU
+# tesseract/ocrmac are system dependencies; excluded from default install
+docling[easyocr,rapidocr]>=2.26
+rapidocr-onnxruntime
+pypdf>=5.0
+pymupdf>=1.24
+
+# --- Vector store ---
+chromadb>=0.5
+
+# --- Embeddings ---
+sentence-transformers>=3.0
+torch>=2.2
+
+# --- LLM clients ---
+openai>=1.40
+
+# --- UI ---
+nicegui>=2.0
+
+# --- Config / utils ---
+pydantic>=2.5
+pyyaml>=6.0
+python-dotenv>=1.0
+requests>=2.31

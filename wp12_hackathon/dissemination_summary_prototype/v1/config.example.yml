@@ -1,0 +1,76 @@
+# config.example.yml — annotated reference showing every available field.
+# Copy to config.yml and edit as needed.
+# Minimal config: just list the endpoints you want to use.
+
+cache_dir: .cache   # relative to this file, or absolute path
+
+defaults:
+  out_lang: pt-pt           # BCP-47 language tag for the summary output
+  max_words: 200             # target word count for the summary
+  max_keywords: 6
+  max_tags: 5
+  processing_mode: vector    # vector (RAG) or plain (full-text, for short docs)
+  pdf_loader: docling         # docling (smart) or pypdf (fast fallback)
+  embedding: local            # "local" uses BAAI/bge-m3; or pass an endpoint URL
+  llm:
+    timeout_sec: 600          # per-request LLM timeout in seconds
+    max_retries: 2
+  temperature: 0.1            # lower = more deterministic JSON output
+
+docling:
+  do_ocr: false               # true only for scanned PDFs (adds ~40-60s on CPU)
+  # OCR engine — only matters when do_ocr: true
+  #   easyocr   multilingual; models download to .cache/easyocr/ on first use (~200 MB)
+  #   rapidocr  ONNX models bundled with pip package — zero extra download, faster
+  #   tesseract system dependency; install separately + set TESSDATA_PREFIX env var
+  ocr_engine: easyocr         # easyocr | rapidocr | tesseract
+  table_mode: fast            # "accurate" gives better tables but is slower
+  convert_timeout_sec: 900    # abort Docling if it runs over this many seconds
+
+local_embedding:
+  model: BAAI/bge-m3          # any sentence-transformers model works here
+
+bench:
+  pdfs_dir: bench/pdfs        # PDFs to run scenarios over
+  configs_dir: bench/configs  # YAML scenario files
+  runs_dir: bench/runs        # JSONL output (gitignored)
+  stability_repeat: 2         # how many times to repeat each scenario to measure stability
+
+instruction_prompt: |
+  You are a statistician specializing in reporting; your goal is to summarize the content of documents.
+  You must not add information or make analysis; only summarize what is already present.
+  Pay special attention to avoiding bias in your summaries; remain neutral. Follow the spirit and tone of the documents.
+  Use European Portuguese for Portuguese output and American English for English output.
+  Strive for eloquence while remaining accessible in the target language.
+
+# Endpoints: add any number. Bare minimum is just "url:".
+# The probe auto-detects the API kind (ollama_native vs openai_compatible).
+# auth_env names an environment variable that holds the API key.
+endpoints:
+  - url: https://llm.lab.sspcloud.fr/api
+    id: ssp                    # optional, derived from host if omitted
+    name: SSP Cloud            # optional display name
+    auth_env: SSP_KEY          # env var holding the key (never put the key here)
+    auth_help: "Set SSP_KEY in .env"
+    network_hint: "Reachable from any internet connection."
+
+  - url: http://localhost:11434
+    id: ollama_local
+    name: Ollama (local)
+    network_hint: "Requires Ollama: https://ollama.com"
+
+  - url: https://ollama.ine.pt
+    id: ine
+    name: Statistics Portugal (INE)
+    network_hint: "Only reachable on the INE corporate network / VPN."
+
+  - url: https://api.openai.com
+    id: openai
+    name: OpenAI
+    auth_env: OPENAI_API_KEY
+    auth_help: "Set OPENAI_API_KEY in .env"
+
+  # Example: any other OpenAI-compatible server
+  # - url: http://myserver:8080
+  #   id: myserver
+  #   name: My local vLLM
