@@ -503,13 +503,15 @@ def _main_page() -> None:  # noqa: C901
         status = PROBE_RESULTS.get(ep_id)
         return status.chat_models if status and status.ok else []
 
-    def _embed_options(ep_id: str) -> dict[str, str]:
+    def _embed_options() -> dict[str, str]:
+        """Collect embedding models from ALL probed endpoints, independent of the LLM endpoint."""
         opts: dict[str, str] = {
             "local": f"Local · {cfg.local_embedding.model}"}
-        status = PROBE_RESULTS.get(ep_id)
-        if status and status.ok:
-            for m in status.embed_models:
-                opts[f"{status.endpoint.url}::{m}"] = f"{status.endpoint.name} · {m}"
+        for ep in cfg.endpoints:
+            status = PROBE_RESULTS.get(ep.id)
+            if status and status.ok:
+                for m in status.embed_models:
+                    opts[f"{status.endpoint.url}::{m}"] = f"{status.endpoint.name} · {m}"
         return opts
 
     def _default_emb(opts: dict[str, str]) -> str:
@@ -882,11 +884,7 @@ def _main_page() -> None:  # noqa: C901
                             ui.label("Embedding model").classes(
                                 "text-xs font-semibold uppercase tracking-wide text-slate-500"
                             )
-                            emb_opts = (
-                                _embed_options(default_ep)
-                                if default_ep
-                                else {"local": f"Local · {cfg.local_embedding.model}"}
-                            )
+                            emb_opts = _embed_options()
                             refs["embedding_select"] = ui.select(
                                 emb_opts, value=_default_emb(emb_opts),
                                 on_change=lambda _: _refresh_summarize_button(),
@@ -1338,9 +1336,13 @@ def _main_page() -> None:  # noqa: C901
         models = _chat_models_for(ep_id)
         refs["model_select"].set_options(
             models or ["—"], value=models[0] if models else "—")
-        _emb_opts = _embed_options(ep_id)
-        refs["embedding_select"].set_options(
-            _emb_opts, value=_default_emb(_emb_opts))
+        _emb_opts = _embed_options()
+        cur_emb = refs["embedding_select"].value
+        # Preserve the current selection only if it is already a remote embedding;
+        # if it is "local" (the fallback when no probes had run yet) let _default_emb
+        # upgrade it to the first available remote.
+        keep_emb = cur_emb if (cur_emb and cur_emb != "local" and cur_emb in _emb_opts) else _default_emb(_emb_opts)
+        refs["embedding_select"].set_options(_emb_opts, value=keep_emb)
         _refresh_summarizer_summary()
         _refresh_summarize_button()
 
@@ -1386,9 +1388,10 @@ def _main_page() -> None:  # noqa: C901
                 refs["model_select"].set_options(
                     models or ["—"], value=models[0] if models else "—")
             if refs.get("embedding_select"):
-                _emb_opts = _embed_options(cur_ep)
-                refs["embedding_select"].set_options(
-                    _emb_opts, value=_default_emb(_emb_opts))
+                _emb_opts = _embed_options()
+                cur_emb = refs["embedding_select"].value
+                keep_emb = cur_emb if (cur_emb and cur_emb != "local" and cur_emb in _emb_opts) else _default_emb(_emb_opts)
+                refs["embedding_select"].set_options(_emb_opts, value=keep_emb)
         _refresh_summarizer_summary()
         _refresh_summarize_button()
         if refs.get("reprobe_btn"):
