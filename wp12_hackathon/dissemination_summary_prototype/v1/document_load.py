@@ -12,8 +12,12 @@ Public API
     prewarm() -> None
     load_docling_chunks(pdf_path, fp, *, do_ocr, ocr_engine) -> list[Document]
     load_pypdf_chunks(pdf_path, fp) -> list[Document]
+    load_pymupdf_chunks(pdf_path, fp) -> list[Document]
+    load_pymupdf_pages(pdf_path) -> list[Document]
     load_docling_text(pdf_path, *, do_ocr, ocr_engine) -> str
     load_pypdf_text(pdf_path) -> str
+    load_pymupdf_text(pdf_path) -> str
+    join_page_documents_for_plain_text(pages) -> str
 
 Configuration
 -------------
@@ -31,7 +35,7 @@ Chunk metadata schema (guaranteed on every returned Document):
     source_pdf      "Aereo.pdf"
     source_path     "/abs/path/Aereo.pdf"
     page            int (1-based) or 0 if unknown
-    loader          "docling" | "pypdf"
+    loader          "docling" | "pymupdf" | "pypdf"
     bbox            [x1,y1,x2,y2] (Docling only, omitted for pypdf)
     section         "3.2 Architecture" (Docling only, when available)
 """
@@ -49,7 +53,7 @@ from typing import Any
 
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_core.documents import Document
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyMuPDFLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 warnings.filterwarnings("ignore", message=".*pin_memory.*no accelerator.*", category=UserWarning)
@@ -355,19 +359,18 @@ def load_docling_chunks(
     return docs
 
 
-def load_pypdf_chunks(
-    pdf_path: Path | str,
-    fp: str,
-    *,
-    loader_id: str = "pypdf",
-) -> list[Document]:
-    """Load a PDF with PyPDF and return LangChain Documents with full provenance.
+def _pages_from_loader(pdf_path: Path, loader_cls: type) -> list[Document]:
+    return loader_cls(str(pdf_path)).load()
 
-    Uses RecursiveCharacterTextSplitter (chunk_size=1000, overlap=200) to
-    split page text into manageable chunks.
-    """
-    pdf_path = Path(pdf_path)
-    pages = PyPDFLoader(str(pdf_path)).load()
+
+def _split_pages_to_chunks(
+    pdf_path: Path,
+    fp: str,
+    pages: list[Document],
+    *,
+    loader_id: str,
+) -> list[Document]:
+    """Split page-level documents with RecursiveCharacterTextSplitter + provenance metadata."""
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""]
     )
@@ -392,6 +395,30 @@ def load_pypdf_chunks(
             ))
             block_idx += 1
     return docs
+
+
+def load_pypdf_chunks(
+    pdf_path: Path | str,
+    fp: str,
+    *,
+    loader_id: str = "pypdf",
+) -> list[Document]:
+    """Load a PDF with PyPDF and return LangChain Documents with full provenance."""
+    pdf_path = Path(pdf_path)
+    pages = _pages_from_loader(pdf_path, PyPDFLoader)
+    return _split_pages_to_chunks(pdf_path, fp, pages, loader_id=loader_id)
+
+
+def load_pymupdf_chunks(
+    pdf_path: Path | str,
+    fp: str,
+    *,
+    loader_id: str = "pymupdf",
+) -> list[Document]:
+    """Load a PDF with PyMuPDF and return LangChain Documents with full provenance."""
+    pdf_path = Path(pdf_path)
+    pages = _pages_from_loader(pdf_path, PyMuPDFLoader)
+    return _split_pages_to_chunks(pdf_path, fp, pages, loader_id=loader_id)
 
 
 def load_docling_text(
@@ -424,11 +451,27 @@ def load_docling_text(
 
     return _run_with_timeout(
         _convert, timeout,
-        f"Docling conversion exceeded {timeout:.0f}s. Try --loader pypdf."
+        f"Docling conversion exceeded {timeout:.0f}s. Try --loader pymupdf or pypdf."
     )
+
+
+def load_pymupdf_pages(pdf_path: Path | str) -> list[Document]:
+    """Return one LangChain Document per PDF page (PyMuPDF), with page metadata."""
+    return PyMuPDFLoader(str(pdf_path)).load()
+
+
+def join_page_documents_for_plain_text(pages: list[Document]) -> str:
+    """Join page documents into a single plain-text blob for LLM plain mode."""
+    parts = [(p.page_content or "").strip() for p in pages]
+    return "\n\n".join(part for part in parts if part)
 
 
 def load_pypdf_text(pdf_path: Path | str) -> str:
     """Return the full plain-text content of a PDF via PyPDF."""
     pages = PyPDFLoader(str(pdf_path)).load()
-    return "\n".join(p.page_content for p in pages)
+    return join_page_documents_for_plain_text(pages)
+
+
+def load_pymupdf_text(pdf_path: Path | str) -> str:
+    """Return the full plain-text content of a PDF via PyMuPDF."""
+    return join_page_documents_for_plain_text(load_pymupdf_pages(pdf_path))

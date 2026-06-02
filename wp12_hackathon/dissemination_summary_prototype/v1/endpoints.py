@@ -54,8 +54,8 @@ class Defaults(BaseModel):
     max_words: int = 200
     max_keywords: int = 6
     max_tags: int = 5
-    processing_mode: Literal["vector", "plain"] = "vector"
-    pdf_loader: Literal["docling", "pypdf"] = "docling"
+    processing_mode: Literal["vector", "plain"] = "plain"
+    pdf_loader: Literal["docling", "pymupdf", "pypdf"] = "pymupdf"
     embedding: str = "local"
     llm: LLMDefaults = Field(default_factory=LLMDefaults)
     temperature: float = 0.1

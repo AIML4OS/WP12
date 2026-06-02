@@ -47,7 +47,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyMuPDFLoader, PyPDFLoader
 from typing import List, Dict, Optional, Any, Tuple, Set
 from pydantic import SecretStr
 import re
@@ -1220,7 +1220,7 @@ class PDFSummarizer:
     def _load_pdf_page_texts_norm(self, pdf_path: str) -> List[str]:
         """Load page texts (normalized) to support fallback page inference."""
         try:
-            pages = PyPDFLoader(pdf_path).load()
+            pages = PyMuPDFLoader(pdf_path).load()
         except Exception:
             return []
         out: List[str] = []
@@ -1464,12 +1464,12 @@ class PDFSummarizer:
         raise exc
 
     @timed_execution("Processing PDF: {pdf_path}, use_vector_store: {use_vector_store}, document_loader: {document_loader}, embedding_model: {embedding_model}, use_remote_embedding: {use_remote_embedding}, remote_embedding_source: {remote_embedding_source}")
-    def process_pdf(self, pdf_path: str, use_vector_store: bool = False, document_loader: str = "docling", embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = False, remote_embedding_source: str = "ssp", remote_embedding_model: str = "qwen3-embedding-8b", remote_embedding_base_url: str = "", max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
+    def process_pdf(self, pdf_path: str, use_vector_store: bool = False, document_loader: str = "pymupdf", embedding_model: str = "BAAI/bge-m3", use_remote_embedding: bool = False, remote_embedding_source: str = "ssp", remote_embedding_model: str = "qwen3-embedding-8b", remote_embedding_base_url: str = "", max_keywords: int = 6, max_tags: int = 5, out_lang: str = "pt-pt", max_words: int = 200, display_source_name: Optional[str] = None, cancel_event=None):
         """
         Process a PDF file and return a summary.
         """
 
-        # - 1 - load the pdf with docling or pypdf
+        # - 1 - load the pdf with docling, pymupdf, or pypdf
         # - 2 - split the pdf into chunks
         # - 3 - load the chunks into a vector store or just the text
         # - 4 - summarize the chunks with the llm (querying the vector store) or (just the text)
@@ -1487,11 +1487,15 @@ class PDFSummarizer:
             t0 = time.perf_counter()
             if document_loader == "docling":
                 chunks = self._load_pdf_with_docling(pdf_path)
+            elif document_loader == "pymupdf":
+                chunks = self._load_pdf_with_pymupdf(pdf_path)
             elif document_loader == "pypdf":
                 chunks = self._load_pdf_with_pypdf(pdf_path)
             else:
                 raise ValueError(
-                    f"Unsupported document loader: {document_loader}")
+                    f"Unsupported document loader: {document_loader!r}. "
+                    "Use 'docling', 'pymupdf', or 'pypdf'."
+                )
             timing["chunks"] = time.perf_counter() - t0
             print(f"   ✓ {len(chunks)} chunks in {timing['chunks']:.1f}s")
             _check_cancel()
@@ -1569,12 +1573,17 @@ class PDFSummarizer:
             if document_loader == "docling":
                 pdf_text = self._load_pdf_txt_with_docling(pdf_path)
                 context = context + pdf_text
+            elif document_loader == "pymupdf":
+                pdf_text = self._load_pdf_txt_with_pymupdf(pdf_path)
+                context = context + pdf_text
             elif document_loader == "pypdf":
                 pdf_text = self._load_pdf_txt_with_pypdf(pdf_path)
                 context = context + pdf_text
             else:
                 raise ValueError(
-                    f"Unsupported document loader: {document_loader}")
+                    f"Unsupported document loader: {document_loader!r}. "
+                    "Use 'docling', 'pymupdf', or 'pypdf'."
+                )
             timing["pdf_load"] = time.perf_counter() - t0
             print(f"   ✓ PDF loaded in {timing['pdf_load']:.1f}s")
             _check_cancel()
@@ -1646,7 +1655,7 @@ class PDFSummarizer:
         timeout = _env_float("DOCLING_CONVERT_TIMEOUT_SEC", 900.0)
         msg = (
             f"Docling conversion exceeded {timeout:.0f}s while reading the PDF. "
-            "Try PDF loader PyPDF, a smaller document, or raise DOCLING_CONVERT_TIMEOUT_SEC."
+            "Try PDF loader PyMuPDF or PyPDF, a smaller document, or raise DOCLING_CONVERT_TIMEOUT_SEC."
         )
         return _run_callable_with_timeout(
             lambda: self._docling_plain_text_sync(pdf_path),
@@ -1654,13 +1663,39 @@ class PDFSummarizer:
             msg,
         )
 
-    def _load_pdf_txt_with_pypdf(self, pdf_path: str) -> str:
+    def _load_pdf_txt_with_pymupdf(self, pdf_path: str) -> str:
         """
-        Fallback method to load PDF using PyPDFLoader.
+        Fast plain-text extraction for digital PDFs via PyMuPDF.
         """
-        loader = PyPDFLoader(pdf_path)
-        pages = loader.load()
+        pages = PyMuPDFLoader(pdf_path).load()
         return "\n".join(page.page_content for page in pages)
+
+    def _load_pdf_txt_with_pypdf(self, pdf_path: str) -> str:
+        """Lightweight plain-text extraction via PyPDF."""
+        pages = PyPDFLoader(pdf_path).load()
+        return "\n".join(page.page_content for page in pages)
+
+    def _chunk_loaded_pages(self, pages: List[Document]) -> List[Document]:
+        """Split page-level documents with RecursiveCharacterTextSplitter."""
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len,
+            separators=["\n\n", "\n", " ", ""],
+        )
+        splits: List[Document] = []
+        for page_idx, page in enumerate(pages):
+            page_splits = text_splitter.split_text(page.page_content)
+            for split in page_splits:
+                metadata = dict(page.metadata) if isinstance(
+                    page.metadata, dict) else {}
+                raw_page = metadata.get("page")
+                if isinstance(raw_page, int):
+                    metadata["page_number"] = raw_page + 1
+                else:
+                    metadata["page_number"] = page_idx + 1
+                splits.append(Document(page_content=split, metadata=metadata))
+        return splits
 
     def _docling_chunks_sync(self, pdf_path: str, sentence_transformer_model: str = "BAAI/bge-m3") -> List[Document]:
         export_type = ExportType.DOC_CHUNKS
@@ -1702,7 +1737,7 @@ class PDFSummarizer:
         timeout = _env_float("DOCLING_CONVERT_TIMEOUT_SEC", 900.0)
         msg = (
             f"Docling chunking exceeded {timeout:.0f}s. "
-            "Try PDF loader PyPDF, or raise DOCLING_CONVERT_TIMEOUT_SEC."
+            "Try PDF loader PyMuPDF or PyPDF, or raise DOCLING_CONVERT_TIMEOUT_SEC."
         )
         return _run_callable_with_timeout(
             lambda: self._docling_chunks_sync(
@@ -1783,42 +1818,13 @@ class PDFSummarizer:
             raise
         return vector_store
 
+    def _load_pdf_with_pymupdf(self, pdf_path: str) -> List[Document]:
+        """Load PDF with PyMuPDF and chunk for vector retrieval."""
+        return self._chunk_loaded_pages(PyMuPDFLoader(pdf_path).load())
+
     def _load_pdf_with_pypdf(self, pdf_path: str) -> List[Document]:
-        """
-        Load PDF using pypdf with better chunking strategy.
-        """
-
-        loader = PyPDFLoader(pdf_path)
-        pages = loader.load()
-
-        # Use RecursiveCharacterTextSplitter for better chunking
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,  # Larger chunks
-            chunk_overlap=200,  # Some overlap for context
-            length_function=len,
-            separators=["\n\n", "\n", " ", ""]
-        )
-
-        # Split the pages into better chunks and create Document objects
-        splits = []
-        for page_idx, page in enumerate(pages):
-            page_splits = text_splitter.split_text(page.page_content)
-            for split in page_splits:
-                # Create Document objects with metadata
-                metadata = dict(page.metadata) if isinstance(
-                    page.metadata, dict) else {}
-                raw_page = metadata.get("page")
-                if isinstance(raw_page, int):
-                    metadata["page_number"] = raw_page + 1
-                else:
-                    metadata["page_number"] = page_idx + 1
-                doc = Document(
-                    page_content=split,
-                    metadata=metadata
-                )
-                splits.append(doc)
-
-        return splits
+        """Load PDF with PyPDF and chunk for vector retrieval."""
+        return self._chunk_loaded_pages(PyPDFLoader(pdf_path).load())
 
     # this is a helper function to suppress the logging of docling, it is used to avoid the verbose output of docling
     def _suppress_logging(self):

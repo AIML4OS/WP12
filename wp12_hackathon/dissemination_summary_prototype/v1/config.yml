@@ -8,8 +8,8 @@ defaults:
   max_words: 200
   max_keywords: 6
   max_tags: 5
-  processing_mode: vector   # vector | plain
-  pdf_loader: docling        # docling | pypdf
+  processing_mode: plain     # plain (full text) | vector (chunk + embed + retrieve)
+  pdf_loader: pymupdf       # docling | pymupdf | pypdf
   embedding: remote          # remote (prefer endpoint) | local | <endpoint url>::<model>
   llm:
     timeout_sec: 600

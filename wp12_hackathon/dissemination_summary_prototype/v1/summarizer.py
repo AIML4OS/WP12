@@ -48,7 +48,17 @@ from langchain_core.documents import Document
 
 import document_load
 import endpoints as ep
-from document_load import fingerprint, load_docling_chunks, load_docling_text, load_pypdf_chunks, load_pypdf_text
+from document_load import (
+    fingerprint,
+    join_page_documents_for_plain_text,
+    load_docling_chunks,
+    load_docling_text,
+    load_pypdf_chunks,
+    load_pypdf_text,
+    load_pymupdf_chunks,
+    load_pymupdf_pages,
+    load_pymupdf_text,
+)
 from endpoints import Config, Endpoint, EndpointStatus, load_config, make_chat_model, make_embeddings, probe, list_models
 from pydantic import BaseModel, Field
 
@@ -78,8 +88,8 @@ _NUMERIC_TOKEN_RE = re.compile(
 
 class SummarizeOptions(BaseModel):
     """Options for a single summarize() call."""
-    processing_mode: Literal["vector", "plain"] = "vector"
-    pdf_loader: Literal["docling", "pypdf"] = "docling"
+    processing_mode: Literal["vector", "plain"] = "plain"
+    pdf_loader: Literal["docling", "pymupdf", "pypdf"] = "pymupdf"
     embedding: str = "local"           # "local" or "<endpoint_url>::<embed_model>"
     llm_endpoint: str = ""             # endpoint URL (must be set before calling summarize)
     llm_model: str = ""                # model name (must be set before calling summarize)
@@ -186,8 +196,8 @@ def _normalize_for_match(text: str) -> str:
 
 def _load_pdf_page_texts_norm(pdf_path: str) -> list[str]:
     try:
-        from langchain_community.document_loaders import PyPDFLoader
-        pages = PyPDFLoader(pdf_path).load()
+        from langchain_community.document_loaders import PyMuPDFLoader
+        pages = PyMuPDFLoader(pdf_path).load()
     except Exception:
         return []
     return [_normalize_for_match(getattr(p, "page_content", "")) for p in pages]
@@ -311,16 +321,43 @@ def build_sources_from_docs(
     return sources
 
 
+def _page_texts_norm_from_page_docs(pages: list[Any]) -> list[str]:
+    return [_normalize_for_match(getattr(p, "page_content", "")) for p in pages]
+
+
+def _location_for_plain_excerpt(
+    excerpt: str,
+    *,
+    page_texts_norm: list[str] | None = None,
+    pdf_path: str | None = None,
+) -> str:
+    """Resolve a plain-mode excerpt to p.N via page text, else full document."""
+    norms = page_texts_norm
+    if norms is None and pdf_path:
+        norms = _load_pdf_page_texts_norm(pdf_path)
+    if norms and excerpt and excerpt not in ("(content unavailable)", "(empty excerpt)"):
+        inferred = _infer_page_from_excerpt(excerpt, norms)
+        if inferred is not None:
+            return f"p.{inferred}"
+    return "full document"
+
+
 def build_source_from_full_text(
     pdf_path: str,
     content: str,
     *,
     summary_text: str | None = None,
     display_source_name: str | None = None,
+    page_texts_norm: list[str] | None = None,
     max_sources: int = 6,
     excerpt_window: int = 240,
 ) -> list[dict]:
-    """Source attribution for plain (non-vector) mode."""
+    """Source attribution for plain (non-vector) mode.
+
+    When ``page_texts_norm`` is supplied (PyMuPDF pages loaded once for plain
+    mode), excerpts are mapped to ``p.N`` locations. Otherwise falls back to
+    re-loading page text from ``pdf_path`` via PyMuPDF for inference.
+    """
     src_name = (
         os.path.basename(str(display_source_name))
         if display_source_name
@@ -354,15 +391,25 @@ def build_source_from_full_text(
             prefix = "…" if ws > 0 else ""
             suffix = "…" if we < len(content) else ""
             excerpt = f"{prefix}{raw_excerpt}{suffix}".strip()
+            location = _location_for_plain_excerpt(
+                excerpt,
+                page_texts_norm=page_texts_norm,
+                pdf_path=pdf_path,
+            )
             sources.append({"id": str(len(sources) + 1), "source": src_name,
-                             "location": "full document", "excerpt": excerpt or "(content unavailable)",
+                             "location": location, "excerpt": excerpt or "(content unavailable)",
                              "supports_numbers": [num]})
             used_windows.append((ws, we))
     if not sources:
         excerpt = " ".join(str(content).split())
         if len(excerpt) > 360:
             excerpt = excerpt[:359].rstrip() + "…"
-        sources.append({"id": "1", "source": src_name, "location": "full document",
+        location = _location_for_plain_excerpt(
+            excerpt,
+            page_texts_norm=page_texts_norm,
+            pdf_path=pdf_path,
+        )
+        sources.append({"id": "1", "source": src_name, "location": location,
                          "excerpt": excerpt or "(content unavailable)", "supports_numbers": []})
     return sources
 
@@ -632,8 +679,12 @@ def summarize(
                     ocr_engine=options.ocr_engine,
                     table_mode_str=options.table_mode,
                 )
-            else:
+            elif options.pdf_loader == "pymupdf":
+                chunks = load_pymupdf_chunks(pdf_path, fp)
+            elif options.pdf_loader == "pypdf":
                 chunks = load_pypdf_chunks(pdf_path, fp)
+            else:
+                raise ValueError(f"Unsupported pdf_loader: {options.pdf_loader!r}")
             timing["chunks"] = time.perf_counter() - t0
             progress(f"   ✓ {len(chunks)} chunks in {timing['chunks']:.1f}s")
             check_cancel()
@@ -692,6 +743,7 @@ def summarize(
             # --- plain mode ---
             progress(f"⏳ Step 1/3 — Loading PDF ({options.pdf_loader})…")
             t0 = time.perf_counter()
+            page_texts_norm: list[str] | None = None
             if options.pdf_loader == "docling":
                 pdf_text = load_docling_text(
                     pdf_path,
@@ -699,8 +751,14 @@ def summarize(
                     ocr_engine=options.ocr_engine,
                     table_mode_str=options.table_mode,
                 )
-            else:
+            elif options.pdf_loader == "pymupdf":
+                pages = load_pymupdf_pages(pdf_path)
+                pdf_text = join_page_documents_for_plain_text(pages)
+                page_texts_norm = _page_texts_norm_from_page_docs(pages)
+            elif options.pdf_loader == "pypdf":
                 pdf_text = load_pypdf_text(pdf_path)
+            else:
+                raise ValueError(f"Unsupported pdf_loader: {options.pdf_loader!r}")
             timing["pdf_load"] = time.perf_counter() - t0
             progress(f"   ✓ PDF loaded in {timing['pdf_load']:.1f}s")
             check_cancel()
@@ -726,6 +784,7 @@ def summarize(
             chain_result["sources"] = build_source_from_full_text(
                 str(pdf_path), pdf_text, summary_text=summary_text,
                 display_source_name=options.display_source_name,
+                page_texts_norm=page_texts_norm,
             )
             claims, unmatched = build_numeric_coverage(summary_text, chain_result["sources"])
             chain_result["numeric_claims"] = claims
@@ -840,7 +899,7 @@ def _cli_main() -> None:
     p_sum.add_argument("--endpoint", metavar="URL", default=None)
     p_sum.add_argument("--model", metavar="NAME", default=None)
     p_sum.add_argument("--mode", choices=["vector", "plain"], default=None)
-    p_sum.add_argument("--loader", choices=["docling", "pypdf"], default=None)
+    p_sum.add_argument("--loader", choices=["docling", "pymupdf", "pypdf"], default=None)
     p_sum.add_argument("--embedding", metavar="local|URL", default=None)
     p_sum.add_argument("--lang", metavar="CODE", default=None)
     p_sum.add_argument("--max-words", type=int, default=None, dest="max_words")

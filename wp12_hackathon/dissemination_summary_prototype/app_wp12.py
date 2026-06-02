@@ -10,7 +10,7 @@ from summarizer_unified import (
     probe_ssp_models,
     prewarm_docling_models,
 )
-from nicegui import app, ui, run
+from nicegui import app, background_tasks, ui, run
 import threading
 import sys
 import queue
@@ -30,13 +30,17 @@ logging.getLogger("pypdf._reader").setLevel(logging.ERROR)
 
 @app.on_startup
 async def _prewarm_docling() -> None:
-    """Load Docling models into memory before the first user request.
+    """Load Docling in the background so the web UI is reachable immediately."""
 
-    Runs in the NiceGUI thread pool so the event loop is not blocked.
-    The singleton is kept alive for the lifetime of the process, so subsequent
-    PDF uploads pay no model-load cost.
-    """
-    await run.io_bound(prewarm_docling_models)
+    async def _prewarm_background() -> None:
+        await asyncio.sleep(2.0)
+        try:
+            await run.io_bound(prewarm_docling_models)
+        except Exception as exc:
+            print(f"⚠ Docling pre-warm failed: {exc}")
+
+    print("Web UI starting — Docling pre-warm scheduled in background.")
+    background_tasks.create(_prewarm_background())
 
 
 class _StdoutTee:
@@ -1882,13 +1886,18 @@ def main_page():
                                     'Structured, layout-aware extraction. Vector mode uses '
                                     "Docling's hybrid chunking."
                                 ),
+                                'pymupdf': (
+                                    'PyMuPDF\n'
+                                    'Fast, accurate text for digital reports. In vector mode, '
+                                    'chunks use RecursiveCharacterTextSplitter.'
+                                ),
                                 'pypdf': (
                                     'PyPDF\n'
-                                    'Lightweight page-level text. In vector mode, chunks use '
-                                    'RecursiveCharacterTextSplitter.'
+                                    'Lightweight page-level text (fastest, least accurate). '
+                                    'Same chunking as PyMuPDF in vector mode.'
                                 ),
                             },
-                            value='docling',
+                            value='pymupdf',
                         ).props('vertical')
 
                 def refresh_summarizer_summary():
@@ -1905,7 +1914,12 @@ def main_page():
                     mode = processing_mode.value
                     loader = loader_radio.value
                     mode_txt = 'Plain text' if mode == 'plain' else 'Vector retrieval'
-                    loader_txt = 'Docling' if loader == 'docling' else 'PyPDF'
+                    _loader_labels = {
+                        'docling': 'Docling',
+                        'pymupdf': 'PyMuPDF',
+                        'pypdf': 'PyPDF',
+                    }
+                    loader_txt = _loader_labels.get(loader, loader)
                     summarizer_summary_mode_label.set_text(f'Mode: {mode_txt}')
                     summarizer_summary_loader_label.set_text(
                         f'Loader: {loader_txt}')
@@ -2369,10 +2383,13 @@ if __name__ in {'__main__', '__mp_main__'}:
         '-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H2'
         '00Zm0-80h560v-560H200v560Zm0-560v560-560Z"/></svg>'
     )
+    _reload = os.getenv('NICEGUI_RELOAD', 'false').strip().lower() in (
+        '1', 'true', 'yes',
+    )
     run_kwargs = {
         'host': '0.0.0.0',
         'port': 5001,
-        'reload': True,  # reload the app when the code changes
+        'reload': _reload,
         'title': 'PDF Summarizer',
         'favicon': _favicon_svg,
     }

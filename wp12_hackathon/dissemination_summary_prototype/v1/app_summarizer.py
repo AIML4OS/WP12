@@ -22,7 +22,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from nicegui import app, ui, run
+from nicegui import app, background_tasks, ui, run
 from nicegui.events import UploadEventArguments
 
 import document_load
@@ -356,10 +356,27 @@ def _format_summarize_error(exc: BaseException, *, model: str = "", endpoint: st
 PROBE_RESULTS: dict[str, EndpointStatus] = {}
 
 
-def _probe_all_endpoints(cfg: Config) -> None:
-    """Run endpoint probes (blocking) — called via run.io_bound."""
-    for ep in cfg.endpoints:
-        PROBE_RESULTS[ep.id] = probe(ep)
+def _probe_all_endpoints(cfg: Config, *, timeout: int = 12) -> None:
+    """Probe all configured endpoints in parallel (blocking — use via run.io_bound)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    endpoints = list(cfg.endpoints)
+    if not endpoints:
+        return
+    max_workers = min(len(endpoints), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        future_to_id = {
+            pool.submit(probe, ep, timeout=timeout): ep.id for ep in endpoints
+        }
+        for future in as_completed(future_to_id):
+            ep_id = future_to_id[future]
+            ep = next(e for e in endpoints if e.id == ep_id)
+            try:
+                PROBE_RESULTS[ep_id] = future.result()
+            except Exception as exc:
+                PROBE_RESULTS[ep_id] = EndpointStatus(
+                    endpoint=ep, ok=False, error=str(exc),
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -368,8 +385,20 @@ def _probe_all_endpoints(cfg: Config) -> None:
 
 @app.on_startup
 async def _on_startup() -> None:
+    """Probe endpoints once; defer Docling pre-warm so the first page can render first."""
+    print("Probing LLM endpoints…")
     await run.io_bound(_probe_all_endpoints, _CFG)
-    await run.io_bound(prewarm)
+    print("Web UI ready — Docling pre-warm scheduled in background.")
+
+    async def _prewarm_background() -> None:
+        # Yield the event loop and give the first page build time on the CPU.
+        await asyncio.sleep(2.0)
+        try:
+            await run.io_bound(prewarm)
+        except Exception as exc:
+            print(f"  ⚠ Docling pre-warm failed: {exc}")
+
+    background_tasks.create(_prewarm_background())
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +488,13 @@ def _main_page() -> None:  # noqa: C901
 
     ui.add_head_html(_PAGE_CSS.strip())
     ui.query("body").style("background:#f5f5f5")
+    # Shown immediately while the rest of the page tree is built (sync page runs in a worker thread).
+    _boot = ui.column().classes(
+        "w-full items-center justify-center gap-2 py-6 text-slate-600"
+    )
+    with _boot:
+        ui.spinner("dots", size="lg", color="primary")
+        ui.label("Building interface…")
 
     # ── Shared UI state ───────────────────────────────────────────────────────
     state: dict[str, Any] = {
@@ -912,10 +948,15 @@ def _main_page() -> None:  # noqa: C901
                                         "Structured, layout-aware extraction. Vector mode uses "
                                         "Docling's hybrid chunking."
                                     ),
+                                    "pymupdf": (
+                                        "PyMuPDF\n"
+                                        "Fast, accurate text for digital reports. Vector mode uses "
+                                        "RecursiveCharacterTextSplitter."
+                                    ),
                                     "pypdf": (
                                         "PyPDF\n"
-                                        "Lightweight page-level text. In vector mode, chunks use "
-                                        "RecursiveCharacterTextSplitter."
+                                        "Lightweight page-level text (fastest, least accurate). "
+                                        "Same chunking as PyMuPDF in vector mode."
                                     ),
                                 },
                                 value=cfg.defaults.pdf_loader,
@@ -1358,7 +1399,12 @@ def _main_page() -> None:  # noqa: C901
         loader = (refs.get("loader_radio")
                   and refs["loader_radio"].value) or cfg.defaults.pdf_loader
         mode_txt = "Plain text" if mode == "plain" else "Vector retrieval"
-        loader_txt = "Docling" if loader == "docling" else "PyPDF"
+        _loader_labels = {
+            "docling": "Docling",
+            "pymupdf": "PyMuPDF",
+            "pypdf": "PyPDF",
+        }
+        loader_txt = _loader_labels.get(loader, loader)
         refs["sum_ep_label"].set_text(f"LLM: {ok} {ep_name}")
         refs["sum_model_label"].set_text(f"Model: {model or '—'}")
         refs["sum_mode_label"].set_text(f"Mode: {mode_txt}")
@@ -1589,20 +1635,27 @@ def _main_page() -> None:  # noqa: C901
     _refresh_summarizer_summary()
     _refresh_params_summary()
     _refresh_summarize_button()
+    _boot.delete()
 
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 @ui.page("/")
 def index() -> None:
+    # Sync page builder: NiceGUI runs this in a worker thread so the event loop
+    # stays responsive. Do NOT use async here and call _main_page() directly —
+    # that blocks the loop after clearing a loading shell and leaves a blank page.
     _main_page()
 
 
 if __name__ in ("__main__", "__mp_main__"):
+    _reload = os.getenv("NICEGUI_RELOAD", "false").strip().lower() in (
+        "1", "true", "yes",
+    )
     ui.run(
         host="0.0.0.0",
         port=5001,
-        reload=True,
+        reload=_reload,
         title="WP12 · PDF Summarizer",
         favicon=_FAVICON_SVG,
     )
