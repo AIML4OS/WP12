@@ -5,6 +5,12 @@ The Stockholm sprint is organised as part of Work Package 12 (WP12) in the AIML4
 
 The sprint will take place at Statistics Sweden (SCB) in Stockholm, 16-18 June 2026. It builds on earlier WP12 work, including the Lisbon sprint in June 2025, where several LLM-based prototype examples were developed and later used as input to WP12 deliverable material.
 
+## About AIML4OS
+
+AIML4OS, One-Stop-Shop for Artificial Intelligence and Machine Learning for Official Statistics, aims to support the use of AI and machine learning across the European Statistical System. The project brings together work on infrastructure, methodology, standards, implementation frameworks and practical use cases so that national statistical institutes can explore, develop and reuse AI/ML solutions in a coordinated way.
+
+The overall goal is to help move AI/ML from experimentation towards practical and responsible use in official statistics. This includes developing shared resources, prototypes, guidance and environments that can support quality, transparency, reproducibility, data protection and collaboration across organisations.
+
 ## Purpose of WP12
 
 WP12 explores how LLM-based approaches can be used in the context of official statistics. The work includes both practical prototype development and reflection on how such systems can be implemented in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
