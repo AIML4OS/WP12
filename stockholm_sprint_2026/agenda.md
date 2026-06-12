@@ -22,7 +22,7 @@
 
 17:30			End of Day 1
 
-~19:00			Social dinner
+19:30			Social dinner at Brasseriet: https://maps.app.goo.gl/ue1ctFPAynQvbSc79
 
 ---
 
