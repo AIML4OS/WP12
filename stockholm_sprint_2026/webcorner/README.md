@@ -1,0 +1,32 @@
+## Description
+This is a prototype using tool calling using an LLM for web scraping. The idea is to let the LLM infer domain specific knowledge and arrive at the relevant (sub-)page starting from a base url. Compared to traditional scraping (e.g. rule-based approaches) this allows for a generic toolset where a user prompt is sufficient to traverse a web-page 
+
+### Input and output
+The input is a starting URL
+For our proof of concept we will promp the LLM to find specific articles CBS and SCB websites. 
+The output depends on the prompt, but its general case is a prompt response to the question in the prompt (usually looking for a statistic unit)
+
+## Evaluation criteria
+One tangible criteria could be runtime compared to traditional scrapers
+Lifespan, expectation is high due to plug and play capabilities LLMs with the software
+Flexibility and re-usability are also relevant but harder to quantify
+
+## Architecture
+The software will be generic and support any LLM that can be approached using the API and supports tool-calling.
+The tools itself will be simplistic by design and carry out one small task per tool
+Only relevant tools will be provided
+To avoid infinite loops we do not permit re-visits for the proof of concept
+
+## Evaluation summary
+Reusability: high
+On prem compatability: medium/high (requires on-site LLM that supports tool calling)
+Feasibility: medium
+Lifespan: medium/high
+Efficiency gain: high in generic applicability, low/none in runtime gains
+
+## TODO
+
+- LLM can fetch hyperlinks from URLs
+- LLM can fetch page content from URLs
+- LLM path to output page is traceable
+- LLM adds reasoning to output 
