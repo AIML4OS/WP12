@@ -1,0 +1,3 @@
+api_host: https://llm.lab.sspcloud.fr/api
+api_key: 
+api_model: gemma4-26b-moe
