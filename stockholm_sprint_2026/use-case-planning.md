@@ -27,6 +27,7 @@ The Web Corner use case will focus on web scraping, statistical web scraping and
 
 The aim is to explore how LLM-based systems can support tasks such as:
 
+- Use LLMs as alternatives to domain-specific knowledge
 - identifying relevant information on websites
 - classifying websites or web pages according to statistical concepts
 - extracting information from web pages
