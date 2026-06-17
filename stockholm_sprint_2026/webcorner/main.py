@@ -16,20 +16,41 @@ tools = get_tools()
 tooldescriptions = get_tool_dict()
 
 user_prompt = """
-Starting from cbs.nl, I am looking information about import from gulf states, especially recently.
+Is there a job vacancy related to information security at the swedish statical office?
 """
 
-user_prompt = """
-Startend vanaf cbs.nl, ik ben op naar informatie over import van de golfstaten, met name recente info.
-"""
+system_prompt = """
+You are an expert Autonomous Web Discovery Agent.
+Your goal: Navigate website hierarchies to find specific info (jobs, articles, etc.).
 
+CORE PROTOCOL:
+1. EXPLORATION MODE (Use `fetch_page_urls`):
+   When you find a list of links, do not guess. Analyze the links. Identify "Hubs" (careers, products, blog) vs "Leaf Nodes" (specific job postings). 
+   Map the site structure before attempting to read content. Avoid going down query paths on a website, only visit actual pages. If a URL matches the phrase the user is looking for, it is likely to be what you're looking for.
+
+2. EXTRACTION MODE (Use `fetch_page_content`):
+   Only use this when you have reached a "Leaf Node" (a page likely containing the actual answer).
+
+OPERATIONAL RULES:
+- MANDATORY REASONING: Before calling a tool, you must provide your reasoning within the message content. 
+- Use this structure for your thought process:
+  - Current State: [Where you are]
+  - Goal Analysis: [How close you are]
+  - Strategy: [Exploration vs Extraction and why]
+- AVOID THE SINGLE-CLICK TRAP: Never call `fetch_page_content` on a page that is clearly a list of links. Always use `fetch_page_urls` first to verify depth.
+
+CRITICAL: You must provide your reasoning in the message content AND then trigger the appropriate tool via function calling.
+"""
 print(f"Starting prompt: {user_prompt}")
 
 
 # STEP 1: Send the prompt and the tool definition to the LLM
 response = client.chat.completions.create(
     model=config.api_model,  # Or the specific model name used at your lab
-    messages=[{"role": "user", "content": user_prompt}],
+    messages=[
+        {"role": "user", "content": user_prompt},
+        {"role": "system", "content": system_prompt}
+    ],
     tools=tooldescriptions,
     tool_choice="auto"
 )

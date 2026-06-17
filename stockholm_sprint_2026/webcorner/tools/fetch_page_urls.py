@@ -1,4 +1,5 @@
 import requests
+import random
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
@@ -15,7 +16,7 @@ def fetch_page_urls(url: str) -> list[str]:
         print(f"Error fetching URL: {str(e)}")
         return [f"Error fetching URL: {str(e)}"]
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(response.text, 'lxml')
     urls = set()
 
     for link in soup.find_all('a', href=True):
@@ -33,4 +34,8 @@ def fetch_page_urls(url: str) -> list[str]:
         if parsed.scheme in ('http', 'https'):
             urls.add(clean_url)
 
+    logfileName = f"logfile_{str(random.randint(1, 1000))}.log"
+    print(f"Logging file output to: {logfileName}")
+    with open(f"output/{logfileName}", "w+") as file:
+        file.write(f"{sorted(list(urls))}\n")
     return sorted(list(urls))
