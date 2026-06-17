@@ -1,32 +1,26 @@
-import requests
 import random
-from bs4 import BeautifulSoup
+import re
+from playwright.sync_api import sync_playwright
 
 
-def fetch_page_content(url: str):
-    print(f"Function called: fetch_page_content for url {url}")
-    """
-    Fetches the text content only from a given URL.
-        """
-    try:
-        response = requests.get(url, allow_redirects=True)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Remove script and style elements from the text extraction
-        for script_or_style in soup(["script", "style"]):
-            script_or_style.decompose()
+def fetch_page_content(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle", timeout=30000)
 
-        # Get text and clean up whitespace
-        text = soup.get_text(separator=' ')
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = '\n'.join(chunk for chunk in chunks if chunk)
+        # 1. Grab only the visible text, stripping 100% of HTML tags
+        raw_text = page.locator("body").inner_text()
 
+        # 2. Clean up whitespace to compress the token count even further
+        # This replaces multiple tabs/newlines/spaces with a single space or newline
+        clean_text = re.sub(r'\n+', '\n', raw_text)  # Collapse multiple newlines
+        clean_text = re.sub(r'[ \t]+', ' ', clean_text)  # Collapse multiple spaces/tabs
+        clean_text = clean_text.strip()
+
+        browser.close()
         logfileName = f"logfile_{str(random.randint(1001, 10000))}.log"
-        print(f"Logging file output (fetch content) to: {logfileName}")
         with open(f"output/{logfileName}", "w+") as file:
-            file.write(text)
-        return text
-    except Exception as e:
-        return f"Error fetching content: {e}"
+            file.write(clean_text)
+
+        return clean_text

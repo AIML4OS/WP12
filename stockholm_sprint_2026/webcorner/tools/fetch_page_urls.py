@@ -1,41 +1,56 @@
-import requests
-import random
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 from urllib.parse import urljoin, urlparse
+import random
+import os
 
 
 def fetch_page_urls(url: str) -> list[str]:
     """
-    Given a URL, returns a list of all unique hyperlinks found on that page.
+    Given a URL, uses Playwright to let JavaScript load, 
+    and returns a list of all unique hyperlinks found in the final DOM.
     """
     print(f"Function called: fetch_page_urls for url: {url}")
+    urls = set()
+    
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            # Wait for the network to go idle so all JS-rendered links are loaded
+            page.goto(url, wait_until="networkidle", timeout=15000)
+            
+            # Query the live DOM directly for all 'a' tags with an 'href' attribute
+            # This replaces soup.find_all('a', href=True)
+            href_handles = page.locator('a[href]')
+            href_list = [href_handles.nth(i).get_attribute('href') for i in range(href_handles.count())]
+            
+            browser.close()
+            
     except Exception as e:
-        print(f"Error fetching URL: {str(e)}")
+        print(f"Error fetching URL with Playwright: {str(e)}")
         return [f"Error fetching URL: {str(e)}"]
 
-    soup = BeautifulSoup(response.text, 'lxml')
-    urls = set()
-
-    for link in soup.find_all('a', href=True):
-        href = link.get('href')
-        # Join relative URLs with the base URL
+    # Process and clean the links exactly like your original script
+    for href in href_list:
+        if not href:
+            continue
         full_url = urljoin(url, href)
-
-        # Clean the URL (remove fragments like #section)
         parsed = urlparse(full_url)
         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if parsed.query:
             clean_url += f"?{parsed.query}"
 
-        # Only add if it has a scheme (http/https)
         if parsed.scheme in ('http', 'https'):
             urls.add(clean_url)
 
+    # Ensure output directory exists
+    os.makedirs("output", exist_ok=True)
+
     logfileName = f"logfile_{str(random.randint(1, 1000))}.log"
-    print(f"Logging file output to: {logfileName}")
-    with open(f"output/{logfileName}", "w+") as file:
-        file.write(f"{sorted(list(urls))}\n")
+    print(f"Logging file output to: output/{logfileName}")
+    with open(f"output/{logfileName}", "w+", encoding="utf-8") as file:
+        for url in sorted(list(urls)):
+            file.write(f"{url}\n")
+
     return sorted(list(urls))
