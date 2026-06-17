@@ -15,6 +15,8 @@ client = OpenAI(
 tools = get_tools()
 tooldescriptions = get_tool_dict()
 
+USE_EXTRA_BODY = False #Toggle flag for the 
+
 user_prompt = """
 Is there a job vacancy related to information security at the swedish statical office? Start on www.scb.se
 """
@@ -35,10 +37,6 @@ OPERATIONAL RULES:
 - MANDATORY: If the user provides a url in its initial prompt, you must start there.
 - Stay on the website's native language. You can explore english pages but ALWAYS consider/prioritize the native language's page as well due to possible differences in content.
 - MANDATORY REASONING: Before calling a tool, you must provide your reasoning within the message content. 
-- Use this structure for your thought process:
-  - Current State: [Where you are]
-  - Goal Analysis: [How close you are]
-  - Strategy: [Exploration vs Extraction and why]
 - AVOID THE SINGLE-CLICK TRAP: Never call `fetch_page_content` on a page that is clearly a list of links. Always use `fetch_page_urls` first to verify depth.
 
 CRITICAL: You must provide your reasoning in the message content AND then trigger the appropriate tool via function calling.
@@ -47,16 +45,25 @@ print(f"Starting prompt: {user_prompt}")
 
 
 # STEP 1: Send the prompt and the tool definition to the LLM
-response = client.chat.completions.create(
-    model=config.api_model,  # Or the specific model name used at your lab
-    messages=[
+response_kwargs = {
+    "model": config.api_model,
+    "messages": [
         {"role": "user", "content": user_prompt},
         {"role": "system", "content": system_prompt}
     ],
-    tools=tooldescriptions,
-    tool_choice="auto",
-    temperature=0.1,
-)
+    "tools": tooldescriptions,
+    "tool_choice": "auto",
+    "temperature": 0.1,
+}
+
+
+if USE_EXTRA_BODY:
+    response_kwargs["extra_body"] = {
+        "chat_template_kwargs": {"enable_thinking": True},
+        "skip_special_tokens": False
+    }
+
+response = client.chat.completions.create(**response_kwargs)
 
 response_message = response.choices[0].message
 tool_calls = response.choices[0].message.tool_calls
@@ -84,16 +91,24 @@ while tool_calls is not None and N <= 100:
             "content": str(function_output),
         })
 
-    # Get new response given tool call output
-    response = client.chat.completions.create(
-        model=config.api_model,
-        messages=messages,
-        tools=tooldescriptions,
-        tool_choice="auto",
-        temperature=0.1,
-    )
+    response_kwargs = {
+        "model": config.api_model,
+        "messages": messages,
+        "tools": tooldescriptions,
+        "tool_choice": "auto",
+        "temperature": 0.1,
+    }
+
+    if USE_EXTRA_BODY:
+        response_kwargs["extra_body"] = {
+            "chat_template_kwargs": {"enable_thinking": True},
+            "skip_special_tokens": False
+        }
+
+    response = client.chat.completions.create(**response_kwargs)
 
     response_message = response.choices[0].message
+    print(f"Response reasoning: {response_message.reasoning_content}")
     tool_calls = response_message.tool_calls
     N += 1
 
