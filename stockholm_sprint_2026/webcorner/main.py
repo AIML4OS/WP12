@@ -18,12 +18,20 @@ tooldescriptions = get_tool_dict()
 config.llm.use_extra_body = True  # Toggle flag for the reasoning
 
 # user_prompt = """
-# Geef me een lijst van alle vacatures op cbs.nl
+# Geef me een lijst van alle open vacatures voor het zweedse statistische bureau. Geef me een goed overzicht met de URL, en het soort vakgebied van de baan.
+# """
+
+# user_prompt = """
+# Geef me de URL en prijs/prijzen, en een indruk van de tevredenheid over het product o.b.v. de reviews, van elke kruimeldief beschikbaar op coolblue.nl. Als je meerdere prijzen ziet voor 1 product, stop ze in categorieën.
+# Format de output als volgt (csv, delimiter=';'):
+# url; prijs (voor meerdere prijzen meerdere kolommen); review
 # """
 
 user_prompt = """
-Geef me een lijst van alle vacatures op cbs.nl
+Zijn er vacatures bij het cbs waar iemand niet op een kantoor hoeft te werken? Geef me alle vacatures die je hiervoor vind met de URL erbij. 
 """
+
+
 
 system_prompt = """
 You are an expert Autonomous Web Discovery Agent.
@@ -47,14 +55,12 @@ CORE PROTOCOLS:
    - If `fetch_page_content` returns minimal text or looks like a loading/error screen, do not assume the info is missing; try a different path or re-examine your previous steps.
 
 OPERATIONAL RULES:
-- MANDATORY REASONING: Before every tool call, you must write a concise "Reasoning" block explaining *why* you are choosing this specific URL or action based on the previous observation.
 - LANGUAGE: Prioritize the website's native language pages if they exist, as they often contain more complete information than English translations. You may explore English pages, but cross-reference if necessary.
 - TERMINATION:
     - SUCCESS: You have found the specific info. Provide the answer clearly and include the source URL(s).
     - FAILURE: You have exhausted all logical paths (hubs/links) and cannot find the info. State clearly what you searched for and why it couldn't be found.
 - ERROR HANDLING: If a tool returns an error, analyze the error (e.g., a 404) and attempt an alternative path or report the failure.
-
-CRITICAL: You must provide your reasoning in the message content AND THEN trigger the appropriate tool via function calling.
+- OUTPUT: Do not respond with text-only plans. Every response must either be a tool call OR the final data requested by the user. If you are planning, you must perform the tool call in the same turn
 """
 print(f"Starting prompt: {user_prompt}")
 
@@ -84,10 +90,10 @@ response = client.chat.completions.create(**response_kwargs)
 
 response_message = response.choices[0].message
 messages.append(response_message)  # Append the assistant's reasoning/tool call
-
 N = 0
+# Initial response is already handled before the loop
 while response_message.tool_calls is not None and N <= 100:
-    # Execute requested tool calls
+    # 1. Execute all tool calls in the current message
     for tool_call in response_message.tool_calls:
         function_name = tool_call.function.name
         function_args = json.loads(tool_call.function.arguments)
@@ -95,7 +101,7 @@ while response_message.tool_calls is not None and N <= 100:
         print(f"Executing {function_name} with {function_args}")
         function_output = tools[function_name](**function_args)
 
-        # Add tool result
+        # Add tool result to messages
         messages.append({
             "role": "tool",
             "tool_call_id": tool_call.id,
@@ -103,6 +109,7 @@ while response_message.tool_calls is not None and N <= 100:
             "content": str(function_output),
         })
 
+    # 2. Prepare the next request (we must include the assistant's tool call message AND the tool results)
     response_kwargs = {
         "model": config.api_model,
         "messages": messages,
@@ -117,16 +124,22 @@ while response_message.tool_calls is not None and N <= 100:
             "skip_special_tokens": False
         }
 
+    # 3\n. Get the next response
     response = client.chat.completions.create(**response_kwargs)
-
     response_message = response.choices[0].message
-    if config.llm.use_extra_body:
-        # print(f"Response reasoning\n {"-" * 10}\n: {response_message.reasoning_content}\n {"-" * 10}\n")
-        pass
-    messages.append(response_message)  # Append the NEXT assistant response
+
+    if config.llm.use_extra_body and response_message.reasoning_content:
+        print(f"Reasoning \n {"-" * 25}\n {response_message.reasoning_content}\n {"-" * 25}\n")
+
+    # 4. Append this new response to the history so the LLM sees it in the next iteration
+    messages.append(response_message)
+
     N += 1
 
-print(f"\nFinal LLM Answer:\n'{response.choices[0].message.content}'")
+# After the loop, the 'response' variable contains the message that broke the loop 
+# (the one that finally had content instead of tool_calls)
+print(f"\nFinal LLM Answer:\n{response.choices[0].message.content}")
+
 print(f"Total amount of prompt tokens used: {response.usage.prompt_tokens}")
 print(f"Total amount of completion tokens used: {response.usage.completion_tokens}")
 print(f"Total amount of tokens used: {response.usage.total_tokens}")

@@ -27,7 +27,7 @@ def interact_with_web(url: str, action: str, selector: str, value: str = "") -> 
         page = context.new_page()
         
         try:
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
             
             if action == "click":
                 page.click(selector, timeout=5000)
