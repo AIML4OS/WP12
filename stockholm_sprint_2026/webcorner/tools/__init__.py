@@ -17,7 +17,7 @@ def get_tool_dict():
             "type": "function",
             "function": {
                 "name": "fetch_page_urls",
-                "description": "Fetches all unique hyperlinks from a given website URL.",
+                "description": "Fetches all unique hyperlinks from a given website URL. Used playwright to wait until DOM is loaded.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -34,7 +34,7 @@ def get_tool_dict():
             "type": "function",
             "function": {
                 "name": "fetch_page_content",
-                "description": "Fetches the text content from a given URL.",
+                "description": "Fetches the text content from a given URL. Uses Playwright to wait until DOM is loaded.",
                 "parameters": {
                     "type": "object",
                     "properties": {

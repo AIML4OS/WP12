@@ -20,8 +20,9 @@ def fetch_page_urls(url: str) -> list[str]:
             # Wait for the network to go idle so all JS-rendered links are loaded
             page.goto(url, wait_until="networkidle", timeout=15000)
             
+            # Capture the CURRENT URL in case a redirect happened
+            current_url = page.url
             # Query the live DOM directly for all 'a' tags with an 'href' attribute
-            # This replaces soup.find_all('a', href=True)
             href_handles = page.locator('a[href]')
             href_list = [href_handles.nth(i).get_attribute('href') for i in range(href_handles.count())]
             
@@ -35,7 +36,7 @@ def fetch_page_urls(url: str) -> list[str]:
     for href in href_list:
         if not href:
             continue
-        full_url = urljoin(url, href)
+        full_url = urljoin(current_url, href)
         parsed = urlparse(full_url)
         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if parsed.query:
@@ -43,6 +44,9 @@ def fetch_page_urls(url: str) -> list[str]:
 
         if parsed.scheme in ('http', 'https'):
             urls.add(clean_url)
+    
+    if current_url != url:
+        urls.add(current_url)
 
     # Ensure output directory exists
     os.makedirs("output", exist_ok=True)

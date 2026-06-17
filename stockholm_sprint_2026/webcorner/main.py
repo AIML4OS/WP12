@@ -15,44 +15,46 @@ client = OpenAI(
 tools = get_tools()
 tooldescriptions = get_tool_dict()
 
-USE_EXTRA_BODY = False #Toggle flag for the 
+config.llm.use_extra_body = True  # Toggle flag for the reasoning
+
+# user_prompt = """
+# Geef me een lijst van alle vacatures op cbs.nl
+# """
 
 user_prompt = """
-Wat zijn de meest recente statistieken over de groei in gemiddelde WOZ-waarde?
+Geef me een lijst van alle vacatures op cbs.nl
 """
 
 system_prompt = """
 You are an expert Autonomous Web Discovery Agent.
-Your goal: Navigate website hierarchies to find specific info (jobs, articles, etc.).
-It's not enough to provide the user with a plan as to how to navigate the website and arrive at where it can find whatever it is looking for.
-It is your job to go deeper and find the relevant content if it exists.
-If you cannot go deeper, you must provide a detailed explanation as to why it's not possible.
-This is not an interactive session, so you must come up with an answer in one go.
+Your goal: Navigate website hierarchies to find specific, high-value information (e.g., job vacancies, news articles, company details) requested by the user.
 
-CORE PROTOCOL:
+MISSION OBJECTIVE:
+Do not merely provide a plan. You must execute the navigation and retrieve the actual content. Your final response should contain the specific information found and the direct URLs where it was located.
+
+CORE PROTOCOLS:
+
 1. EXPLORATION MODE (Use `fetch_page_urls`):
-   When you find a list of links, do not guess. Analyze the links. Identify "Hubs" (careers, products, blog) vs "Leaf Nodes" (specific job postings). 
-   Map the site structure before attempting to read content. Avoid going down query paths on a website, only visit actual pages.
-   You are also given access to an interactive web browser, use this when you find interactive (e.g. Javascript) elements that could be relevant to your search.
-   If a URL matches the phrase the user is looking for, it is likely to be what you're looking for.
-   You are allowed to move to external platforms as long as if this meets the objective. For example a recruitment for a company website, or a store page.
-   Avoid coming up with 'search queries' where you go to a url of a website with /search?=..., in that case just start browsing the page using the tools at your disposal.
+   - Use this to map the site structure.
+   - Identify "Hubs" (e.g., /careers, /blog, /news, /about) vs "Leaf Nodes" (specific articles or job postings).
+   - ANALYZE links: Look for semantic relevance to the user's query.
+   - AVOID SEARCH-URL TRAPS: Do not attempt to navigate to URLs that look like search queries (e.g., `?s=query` or `/search?q=...`). Instead, browse the website's natural navigation menus/links.
+   - If the user provides a starting URL, you MUST begin there.
 
-EXTRACTION MODE (Use `fetch_page_content`):
-   - If `fetch_page_content` returns minimal text or looks like a loading screen, you MUST NOT conclude the information is missing.
-   - Instead, use `interact_with_web` to 'scroll' or 'click' to trigger content loading.
-   - Only declare "Information not found" after you have attempted to:
-      1. Fetch content.
-      2. Scroll the page.
-      3. Search for interactive elements (buttons/links) that might reveal the list.
+2. EXTRACTION MODE (Use `fetch_page_content`):
+   - Use this ONLY when you have identified a "Leaf Node" (a page that likely contains the actual target information).
+   - AVOID THE SINGLE-CLICK TRAP: Never call `fetch_page_content` on a page that is clearly a directory, a list of links, or a menu. Use `fetch_page_urls` first to drill down.
+   - If `fetch_page_content` returns minimal text or looks like a loading/error screen, do not assume the info is missing; try a different path or re-examine your previous steps.
 
 OPERATIONAL RULES:
-- MANDATORY: If the user provides a url in its initial prompt, you must start there.
-- Stay on the website's native language. You can explore english pages but ALWAYS consider/prioritize the native language's page as well due to possible differences in content.
-- MANDATORY REASONING: Before calling a tool, you must provide your reasoning within the message content. 
-- AVOID THE SINGLE-CLICK TRAP: Never call `fetch_page_content` on a page that is clearly a list of links. Always use `fetch_page_urls` first to verify depth.
+- MANDATORY REASONING: Before every tool call, you must write a concise "Reasoning" block explaining *why* you are choosing this specific URL or action based on the previous observation.
+- LANGUAGE: Prioritize the website's native language pages if they exist, as they often contain more complete information than English translations. You may explore English pages, but cross-reference if necessary.
+- TERMINATION:
+    - SUCCESS: You have found the specific info. Provide the answer clearly and include the source URL(s).
+    - FAILURE: You have exhausted all logical paths (hubs/links) and cannot find the info. State clearly what you searched for and why it couldn't be found.
+- ERROR HANDLING: If a tool returns an error, analyze the error (e.g., a 404) and attempt an alternative path or report the failure.
 
-CRITICAL: You must provide your reasoning in the message content AND then trigger the appropriate tool via function calling.
+CRITICAL: You must provide your reasoning in the message content AND THEN trigger the appropriate tool via function calling.
 """
 print(f"Starting prompt: {user_prompt}")
 
@@ -68,11 +70,11 @@ response_kwargs = {
     "messages": messages,
     "tools": tooldescriptions,
     "tool_choice": "auto",
-    "temperature": 0.1,
+    "temperature": config.llm.temperature,
 }
 
 
-if USE_EXTRA_BODY:
+if config.llm.use_extra_body:
     response_kwargs["extra_body"] = {
         "chat_template_kwargs": {"enable_thinking": True},
         "skip_special_tokens": False
@@ -106,10 +108,10 @@ while response_message.tool_calls is not None and N <= 100:
         "messages": messages,
         "tools": tooldescriptions,
         "tool_choice": "auto",
-        "temperature": 0.1,
+        "temperature": config.llm.temperature,
     }
 
-    if USE_EXTRA_BODY:
+    if config.llm.use_extra_body:
         response_kwargs["extra_body"] = {
             "chat_template_kwargs": {"enable_thinking": True},
             "skip_special_tokens": False
@@ -118,7 +120,9 @@ while response_message.tool_calls is not None and N <= 100:
     response = client.chat.completions.create(**response_kwargs)
 
     response_message = response.choices[0].message
-    print(f"Response reasoning: {response_message.reasoning_content}")
+    if config.llm.use_extra_body:
+        # print(f"Response reasoning\n {"-" * 10}\n: {response_message.reasoning_content}\n {"-" * 10}\n")
+        pass
     messages.append(response_message)  # Append the NEXT assistant response
     N += 1
 
