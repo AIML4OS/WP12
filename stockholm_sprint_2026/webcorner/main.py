@@ -16,7 +16,7 @@ tools = get_tools()
 tooldescriptions = get_tool_dict()
 
 user_prompt = """
-Is there a job vacancy related to information security at the swedish statical office?
+Is there a job vacancy related to information security at the swedish statical office? Start on www.scb.se
 """
 
 system_prompt = """
@@ -32,6 +32,8 @@ CORE PROTOCOL:
    Only use this when you have reached a "Leaf Node" (a page likely containing the actual answer).
 
 OPERATIONAL RULES:
+- MANDATORY: If the user provides a url in its initial prompt, you must start there.
+- Stay on the website's native language. You can explore english pages but ALWAYS consider/prioritize the native language's page as well due to possible differences in content.
 - MANDATORY REASONING: Before calling a tool, you must provide your reasoning within the message content. 
 - Use this structure for your thought process:
   - Current State: [Where you are]
@@ -52,7 +54,8 @@ response = client.chat.completions.create(
         {"role": "system", "content": system_prompt}
     ],
     tools=tooldescriptions,
-    tool_choice="auto"
+    tool_choice="auto",
+    temperature=0.1,
 )
 
 response_message = response.choices[0].message
@@ -86,7 +89,8 @@ while tool_calls is not None and N <= 100:
         model=config.api_model,
         messages=messages,
         tools=tooldescriptions,
-        tool_choice="auto"
+        tool_choice="auto",
+        temperature=0.1,
     )
 
     response_message = response.choices[0].message
@@ -94,3 +98,6 @@ while tool_calls is not None and N <= 100:
     N += 1
 
 print(f"\nFinal LLM Answer:\n'{response.choices[0].message.content}'")
+print(f"Total amount of prompt tokens used: {response.usage.prompt_tokens}")
+print(f"Total amount of completion tokens used: {response.usage.completion_tokens}")
+print(f"Total amount of tokens used: {response.usage.total_tokens}")
