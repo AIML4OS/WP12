@@ -3,4 +3,4 @@ api_key:
 api_model: gemma4-26b-moe
 llm:
   use_extra_body: True
-  temperature: 0.0
+  temperature: 0.2
