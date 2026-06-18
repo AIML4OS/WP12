@@ -1,5 +1,5 @@
 
-## Methodology
+## Overview
 ### Input and Output
 - **Input:** A natural language prompt including a starting URL and a specific goal (e.g., *"Find all job listings related to information security on the SCB website. Start at www.scb.se"*).
 - **Output:** A structured response containing the requested information, the relevant URLs found, and a step-by-step reasoning trace.
