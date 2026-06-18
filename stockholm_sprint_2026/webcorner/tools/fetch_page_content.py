@@ -3,6 +3,7 @@ import re
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth  # Proper top-level class import
 
+
 def fetch_page_content(url):
     clean_text = ""
     print(f"Function called: fetch_page_content for url: {url}")
@@ -24,7 +25,7 @@ def fetch_page_content(url):
             # Step 3 (The manual stealth call) is handled automatically by the context manager above.
             
             # 4. Navigate with your existing domcontentloaded strategy
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(url, wait_until="networkidle", timeout=30000)
             
             # 5. Grab only the visible text, stripping 100% of HTML tags
             raw_text = page.locator("body").inner_text()
@@ -45,5 +46,7 @@ def fetch_page_content(url):
         logfileName = f"logfile_{str(random.randint(1001, 10000))}.log"
         with open(f"output/{logfileName}", "w+", encoding="utf-8") as file:
             file.write(clean_text)
+
+        print(f"Logged page content to {logfileName}")
             
     return clean_text

@@ -35,7 +35,7 @@ def fetch_page_urls(url: str) -> list[str]:
             # The context manager above applies it automatically.
             
             # 4. Navigate (15000ms gives IKEA enough room to process the stealth profile)
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            page.goto(url, wait_until="networkidle", timeout=15000)
             
             # Capture the CURRENT URL in case a redirect happened
             current_url = page.url
