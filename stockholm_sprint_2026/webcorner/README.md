@@ -1,54 +1,45 @@
-## Description
-This is a prototype using tool calling using an LLM for web scraping. The idea is to let the LLM infer domain specific knowledge and arrive at the relevant (sub-)page starting from a base url. Compared to traditional scraping (e.g. rule-based approaches) this allows for a generic toolset where a user prompt is sufficient to traverse a web-page, but still not relient on commercial chatbot services.
 
-### Input and output
-The input is a prompt including a starting URL and a natural language goal (e.g. "Find all job listings related to information securit on the SCB website. Start at www.scb.se")
-The output depends on the prompt, but its general case is a structured response to the question in the prompt containing the requested information along with the reasoning used to find it.
-The system is instructed to return the urls related to the user prompt.
-The reasoning as well as the content it response is written to the console for debugging/troubleshooting purposes.
+## Methodology
+### Input and Output
+- **Input:** A natural language prompt including a starting URL and a specific goal (e.g., *"Find all job listings related to information security on the SCB website. Start at www.scb.se"*).
+- **Output:** A structured response containing the requested information, the relevant URLs found, and a step-by-step reasoning trace.
 
-## Evaluation
-For our proof of concept we will prompt the LLM using a variety of use cases
-- Find specific articles on a topic from multiple sources and compare them. 
-- Find job offerings matching a description
-- Fetch all products and product prices 
+### Evaluation Framework
+The proof of concept is evaluated across several diverse use cases:
+- **Comparative Analysis:** Finding specific articles on a topic across multiple sources.
+- **Job Discovery:** Matching job offerings to specific professional descriptions.
+- **E-commerce Extraction:** Fetching product catalogs and real-time pricing.
 
-### Evaluation criteria
-One tangible criteria could be runtime compared to traditional scrapers
-Lifespan, expectation is high due to plug and play capabilities LLMs with the software
-Flexibility and re-usability are also relevant but harder to quantify
+**Evaluation Criteria:**
+- **Runtime:** Comparison against traditional rule-based scrapers.
+- **Lifespan:** The "plug-and-play" capability of the toolset across different domains.
+- **Flexibility:** Ease of re-use for different websites without manual code changes.
 
-## Architecture
-The software will be generic and support any LLM that can be approached using the API and supports tool-calling.
-The tools itself will be simplistic by design and carry out one small task per tool.
-Only relevant tools will be provided.
-To avoid infinite loops we do not permit re-visits for the proof of concept
-
-## Evaluation summary
+## Evaluation Summary
 
 | Criterion | Assessment |
-|---|---|
-| Efficiency gain | High in generic applicability, low/none in runtime gains |
-| Reusability | High |
-| Data accessibility |  |
-| On-prem compatibility | Medium/high (requires on-site LLM that supports tool calling) |
-| Low-hanging fruit for NSIs |  |
-| Evaluation robustness | We're not using a benchmark dataset... |
-| Feasibility | Medium |
-| Lifespan | Medium/high |
-| Cost effectiveness |  |
+|----------|-------------|
+| **Efficiency Gain** | High in generic applicability; Low in raw runtime speed |
+| **Reusability** | High |
+| **On-prem Compatibility** | Medium/High (Requires local LLM with tool-calling) |
+| **Feasibility** | Medium |
+| **Lifespan** | Medium/High |
+| **Performance vs. Chatbots** | Comparable; often superior due to specialized system prompting |
 
-When comparing the resiults to out of the box commercial chatbots, it seems to perform around the same, in some cases our solution is better, probably due to the system prompt - showing the need for special tools.
+## Key Takeaways
+- **System Prompting:** The system prompt is the most critical component for tuning behavior from a generic LLM into a specialized scraping agent.
+- **Reasoning Trade-offs:** Enabling "Chain of Thought" reasoning significantly improves output quality but increases inference latency.
+- **Tool Design:** Keeping tools "atomic" (performing only one small task) ensures higher reliability during the LLM's tool-calling phase.
 
-## Takeaways
-Prompting was used for assistance in writing the tools and system prompt.
-The system prompt seems central in tuning the behaviour in order to move it from a generic solution to meeting our specific needs.
-Page content retrieval is not always working as expected due to dynamically loaded content.
-turning on the reasoning affects the output and seems to do so at the cost of longer inference time.
+### Current Development: Playwright Integration
+We have initiated integration with **Playwright** to handle modern, JavaScript-heavy websites. 
+- **Progress:** The system can now launch headless browsers and attempt to render dynamic content.
+- **Current Status:** "Almost there"—while the plumbing is in place, the interaction between the LLM's decision-making and the timing of asynchronous JS execution is still being refined to ensure reliable data capture.
 
-## TODO
-
-- ~~LLM can fetch hyperlinks from URLs~~
-- ~~LLM can fetch page content from URLs~~
-- ~~LLM path to output page is traceable~~
-- ~~LLM adds reasoning to output~~ 
+## Roadmap
+- [x] LLM can fetch hyperlinks from URLs
+- [x] LLM can fetch page content from URLs
+- [x] LLM path to output page is traceable
+- [x] LLM adds reasoning to output
+- [/] Robust handling of dynamically loaded (JS) content via Playwright
+- [ ] Automated benchmarking against standard datasets
