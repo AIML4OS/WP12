@@ -1,3 +1,10 @@
+## Getting started
+To install all python dependencies:  
+```pip install -r requirements.txt```    
+
+The user prompt in `main.py` can be changed to scrape something from the web with the generic setup, see the examples in `main.py` and the output in the markdown files
+Tools can be added in `tools/` and their description in `tools/__init__.py`
+A config file `config/config.yaml` is expected, this can be filled in using `config/config_template.yaml`
 
 ## Methodology
 ### Input and Output
