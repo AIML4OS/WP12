@@ -34,7 +34,7 @@ To support sustainability and maintainability of AI systems developed within the
 
 ## Architecture Perspective
 
-An architecture perspective was introduced at the start of the hackathon and continued during the sprint to guide prototype development and encourage conscious choices around components such as:
+An architecture perspective was introduced during the Lisbon hackathon (June 2025) and carried into the Stockholm sprint to guide prototype development and encourage conscious choices around components such as:
 
 - AI models (LLMs)
 - APIs and tool-calling interfaces
@@ -62,6 +62,8 @@ See: [`webcorner/`](webcorner/)
 ### 3. Metadata Management using AI
 
 Exploring how AI can support the management, structuring and use of metadata in official statistics, using a graph-based structure to represent statistical programmes, datasets, variables, data structures, code lists and related metadata objects.
+
+The prototype has its own repository: <https://github.com/AIML4OS/WP12_MetadataGraph>.
 
 See: [`metadata/`](metadata/)
 
@@ -119,20 +121,23 @@ stockholm_sprint_2026/
 ├── use-case-planning.md           # Use-case planning notes
 ├── remote-participation.md        # Remote participation info
 ├── meeting_notes/                 # Meeting notes
-├── News_Corner/                   # News Corner prototype (media consistency)
+├── News_Corner/                   # News Corner experiment (media consistency)
 │   ├── README.md
-│   ├── Report.md
+│   ├── Experiment-Report.md       # Short write-up for D12.2
+│   ├── Report.md                  # Detailed test report
 │   ├── Draft-architecture.md
 │   └── News-Corner-app.pptx
 ├── webcorner/                     # Web Corner prototype (agentic web scraping)
 │   ├── README.md
+│   ├── Report.md                  # Prototype write-up for D12.2
 │   ├── main.py
 │   ├── config/
 │   ├── tools/
 │   └── output*.md
-├── metadata/                      # Metadata management prototype
-│   └── README.md
-└── D12.2/                         # Draft structure for deliverable D12.2
+├── metadata/                      # Metadata Graph prototype (code in its own repo)
+│   ├── README.md
+│   └── Report.md                  # Prototype write-up for D12.2
+└── D12.2/                         # Draft deliverable D12.2
     └── README.md
 ```
 

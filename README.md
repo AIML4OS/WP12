@@ -31,14 +31,22 @@ This repository is meant to serve as a working space where ongoing development a
 
 ```plaintext
 /
-├── wp12_hackathon/                        
+├── Deliverables/
+│   └── D12.1/                               # D12.1 report (Lisbon hackathon, June 2025)
+├── wp12_hackathon/                          # Lisbon hackathon prototypes (input to D12.1)
 │   ├── dissemination_summary_prototype/     # Summarisation and tagging from report PDFs
-│   ├── from_pdf_to_figures/                 # Prototype in early stage - details to come
-│   ├── web_corner_prototype/                # Prototype in early stage - details to come
-│   └── reflections-and-summary.md           # Cross-group evaluation and insights
-├── sspcloud-setup.md                        # Guide to shared development environment
-└── [future-deliverables]/                   # Additional outputs from WP12 to be added later
+│   ├── from_pdf_to_figure_prototype/        # Structured data extraction from PDFs
+│   └── web_corner_prototype/                # Web scraping and LLM content classification
+├── stockholm_sprint_2026/                   # Stockholm sprint (June 2026), input to D12.2
+│   ├── D12.2/                               # Draft deliverable D12.2
+│   ├── News_Corner/                         # Statistical media consistency (experiment)
+│   ├── webcorner/                           # Agentic web scraping (prototype)
+│   └── metadata/                            # Metadata Graph (prototype, own repository)
+└── meeting_notes/                           # WP12 meeting notes
 ```
+
+Related repository: the Metadata Graph prototype has its own repository at
+<https://github.com/AIML4OS/WP12_MetadataGraph>.
 
 ---
 

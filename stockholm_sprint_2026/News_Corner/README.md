@@ -1,5 +1,10 @@
 # News Corner Prototype
 
+> **Status:** reported as an **experiment**, not a runnable prototype. The sprint produced a
+> designed architecture and a series of model tests establishing feasibility; no packaged codebase
+> is delivered with it. See [Experiment-Report.md](Experiment-Report.md) for the short write-up and
+> [Report.md](Report.md) for the full test detail.
+
 ## Description
 
 This project is a prototype for comparing news articles collected from RSS feeds with official publications released by National Statistical Institutes (NSIs). It uses an LLM to interpret and compare web content, allowing the system to identify when media articles refer to specific statistical releases and how accurately those releases are reported.
@@ -37,14 +42,31 @@ This design keeps the prototype simple, reusable, and cost-aware while allowing 
 | Criterion | Assessment |
 |---|---|
 | Efficiency gain | High, compared to manual work |
-| Reusability | High, just download, configure, and run |
+| Reusability | High by design - intended so that any NSI can download, configure and run it, though the runnable implementation does not yet exist |
 | Data accessibility | Medium/Low, due to paywalls on news articles |
-| On-prem compatibility | High |
+| On-prem compatibility | High - the task requires only a chat completion endpoint, with no tool-calling requirement, so it places the lowest infrastructure demand of the three sprint use cases |
 | Low-hanging fruit for NSIs | Medium/Low |
-| Evaluation robustness | High, using a benchmark dataset |
-| Feasibility | High |
+| Evaluation robustness | High by design - the benchmark method (synthetic articles at known alignment levels, scored by human evaluators) is specified but has not yet been executed at scale |
+| Feasibility | High - demonstrated by the sprint tests |
 | Lifespan | Medium, because of fast changes in media |
 | Cost effectiveness | High, compared to manual work |
 
-## TODO
+## Results
 
+Seven tests were run (six with `gemma4-26b-moe` on SSPCloud Onyxia, one supplementary comparison
+with a frontier commercial model), across English, Dutch and Slovenian. Six passed. The model handled
+consistent reporting, topic mismatches, incorrect figures, incorrect reference months and a
+Dutch-release-versus-English-article comparison correctly. It did not detect a reference-*year*
+mismatch in the Slovenian case where the quarter label matched - a prompt-design finding, since the
+supplementary test showed the case was solvable.
+
+See [Experiment-Report.md](Experiment-Report.md) for the summary and [Report.md](Report.md) for
+dimension-level detail and the evaluation prompt.
+
+## Next steps
+
+1. Execute the specified benchmark: synthetic articles at known alignment levels, scored by human
+   evaluators, measuring system agreement with human judgement.
+2. Revise the prompt to force explicit full-reference-period extraction before judgement, and re-run
+   the Slovenian case as a regression test.
+3. Implement the ingestion and storage modules so the experiment becomes reproducible.
