@@ -1,7 +1,9 @@
 ## Description
 The goal of this project is to move beyond traditional, rule-based web scraping by creating an "agentic" scraper. Instead of writing specific scripts for every website, we use an LLM with tool calling. Tool-calling allows LLMs to go beyond text and enables the automatic invoking of specialized functions that are fed back to the LLM in a loop. 
 
-This prototype was developed during the hackathon using the [SSPcloud](https://datalab.sspcloud.fr/) environment, though the software only requires access to an LLM with tool-calling capabilities via an OpenAI-compatible API.
+This prototype was developed during the WP12 Stockholm sprint (16-18 June 2026) using the [SSPcloud](https://datalab.sspcloud.fr/) environment, though the software only requires access to an LLM with tool-calling capabilities via an OpenAI-compatible API. During the sprint the model used was `gemma4-26b-moe`, served from the SSPCloud-hosted vLLM endpoint.
+
+A narrative write-up of the prototype - architecture, configuration, evaluation and conclusions - is in [Report.md](Report.md).
 
 **Key Capabilities:**
 - **URL Discovery:** Finding relevant statistical units or specific pages within a domain. If not provided, the LLM generates a most plausible URL itself or tries to find it on the web.
@@ -69,12 +71,16 @@ playwright install-deps
 
 | Criterion | Assessment |
 |----------|-------------|
-| **Efficiency Gain** | High in generic applicability; Low in raw runtime speed |
-| **Reusability** | High |
-| **On-prem Compatibility** | Medium/High (Requires local LLM with tool-calling) |
+| **Efficiency gain** | High in generic applicability; low in raw runtime speed. Setup time for a new task is close to zero, but LLM reasoning makes each run slower than a hardcoded script. |
+| **Reusability** | High - reusable across diverse sites without writing new code. |
+| **Data accessibility** | High - targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability. |
+| **On-prem compatibility** | Medium/high - the software has no external dependency beyond an OpenAI-compatible endpoint, but running it well on-premises requires local infrastructure capable of serving a medium-sized tool-calling model. |
+| **Low-hanging fruit for NSIs** | Medium/high - small codebase (one control loop and three tools) and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition. |
+| **Evaluation robustness** | Low - outputs were assessed by inspection against known page content. No benchmark dataset or ground truth was established during the sprint. |
 | **Feasibility** | Medium |
-| **Lifespan** | Medium/High |
-| **Performance vs. Chatbots** | Comparable; often superior due to specialized system prompting |
+| **Lifespan** | Medium/high - resilience to site redesign is the central design argument, and the tool interface is model-agnostic. |
+| **Cost effectiveness** | Medium - a task consumes many round-trips, and chain-of-thought reasoning increases token count further. Cost is bounded when the model is self-hosted; against a commercial API it scales with the number of pages traversed. `main.py` prints token usage after each run, which makes the cost of a given task directly observable. |
+| **Performance vs. chatbots** | Comparable; often superior due to specialized system prompting. |
 
 ## Key Takeaways
 - **System Prompting:** The system prompt is the most critical component for tuning behavior from a generic LLM into a specialized scraping agent.
