@@ -56,7 +56,7 @@ Against that framing, the objectives of this deliverable are to:
 - Capture lessons learned and guidance for NSIs considering LLM-based approaches
 - Identify scope, limitations, and future directions
 
-**Out of scope.** D12.2 concerns pre-existing models used as they are. Fine-tuning and domain adaptation belong to T12.3 and are not attempted here; where the sprint results bear on that question, they are noted as input to it rather than as findings about fine-tuning. The deliverable also does not attempt to cover the remaining high-value areas — draft text for the *Analyse* step (B), production code translation (C), or dissemination chatbots (D) — beyond noting in §7 where the sprint architectures could be extended towards them.
+**Out of scope.** D12.2 concerns pre-existing models used as they are. Fine-tuning and domain adaptation belong to T12.3 and are not attempted here; where the sprint results bear on that question, they are noted as input to it rather than as findings about fine-tuning. There is no requirement for a single deliverable to address all five high-value areas, and the remaining three — draft text for the *Analyse* step (B), production code (C), and dissemination chatbots (D) — are simply outside its scope.
 
 ### 1.3 Relationship to D12.1
 
@@ -146,20 +146,21 @@ Taken together, the prototypes indicate that for several application areas withi
 
 Both prototypes are built on tool-calling, but they use it in structurally different ways, and the contrast is one of the more transferable architectural findings of the sprint.
 
-**Tool-calling as an internal control loop (Web Corner).** The agent owns its tools. Three atomic functions — fetch hyperlinks, fetch content, interact with the page — are passed to the model with each request, and a thin loop executes whatever the model calls, appends the result to the message history, and asks again. The tools are private to the application; nothing outside it can invoke them. This is the lightest possible agentic architecture and it is appropriate when the agent's job is bounded and self-contained.
+**Tool-calling as an internal control loop (Web Corner).** The agent owns its tools. A small set of narrow functions is offered to the model with each request, and a thin loop executes whatever the model calls, feeds the result back, and asks again. The tools are private to the application; nothing outside it can invoke them. This is the lightest agentic architecture available, and it suits a bounded, self-contained task.
 
-**Tool-calling as a published interface (Metadata Graph).** The same underlying capability is exposed through the **Model Context Protocol (MCP)**, an open protocol that standardises how LLMs discover and invoke external tools and data sources. It is to agent–tool integration what the Language Server Protocol is to editor–language integration: a common contract that removes the need for bespoke, one-off wiring between each agent and each system.
+**Tool-calling as a published interface (Metadata Graph).** The same underlying capability is instead exposed through the **Model Context Protocol (MCP)**, an open protocol that standardises how LLMs discover and invoke external tools and data sources. It is to agent–tool integration what the Language Server Protocol is to editor–language integration: a common contract that removes the need for bespoke wiring between each agent and each system.
 
-In the Metadata Graph the graph operations are exposed on two parallel surfaces backed by the same service layer: a **REST API**, designed for a human operating a browser and consumed by the React frontend, and an **MCP tool layer**, designed for an LLM agent operating autonomously. Both are mounted on the same uvicorn server on port 8000 on different URL paths, with no separate infrastructure. The MCP surface registers 59 tools covering query and traversal (`search_graph`, `get_node_details`, `get_related_nodes`), semantic matching (`find_similar_nodes`), mutation (`add_nodes`, `update_node`), schema introspection (`get_schema`, `list_node_types`) and session/visualisation control. It offers two transports — legacy SSE and Streamable HTTP — so that both older and current MCP clients can connect.
+Here the graph operations are offered on two parallel surfaces backed by the same underlying service: a REST API for a human operating a browser, and an MCP tool layer for an LLM agent operating on its own. Both run on the same server, with no separate infrastructure.
 
-Two implementation choices in that layer generalise beyond this prototype:
+Three properties of that arrangement generalise beyond this prototype:
 
-- **The MCP instructions are generated at runtime from the active deployment profile.** The node types, relationship types and domain context that an external agent receives are derived from the profile's schema configuration, so a new profile produces a correctly briefed agent with no code change. Domain adaptation and agent briefing are the same act.
-- **REST and MCP share one service layer, with a regression test asserting equivalence between them.** The human view and the agent view of the graph cannot drift apart, which is a governance property as much as a technical one: what an agent can see and change is exactly what the application permits a user to see and change.
+- **What an external agent is told about the domain is derived from the deployment configuration**, not written into the code. Adapting the system to another organisation's information model and briefing an agent correctly are then the same act.
+- **The human interface and the agent interface are backed by one service layer**, so what an agent can see and change is exactly what the application permits a user to see and change. That is a governance property as much as a technical one.
+- **The effect is a change in kind, not degree.** A system reachable over a standard protocol stops being an application with an AI feature and becomes a data source that arbitrary agents can reason over — in practice, an NSI running the prototype can point an external assistant at its own metadata graph and query it conversationally, with no integration work.
 
-The practical effect is that an NSI running the prototype can point an external assistant at its own metadata graph and query it conversationally, with no integration code. The architectural effect is more significant: it is the point at which a prototype stops being an application with an AI feature and becomes a data source that arbitrary agents can reason over.
+MCP is also the prerequisite for the next mode of operation. Both prototypes currently run bounded loops driven by a single user request. Autonomous agentic loops — where an agent plans, traverses, evaluates intermediate results, and decides whether to continue, backtrack or conclude — are what several of the metadata use cases actually require. Change impact assessment after a classification version change cannot be answered in one exchange, because the queries that need to be issued depend on what earlier queries returned. The sprint architecture does not implement that loop, but it deliberately builds the harness for it.
 
-MCP is also the prerequisite for the next mode of operation. Both prototypes currently run bounded loops driven by a single user request. Autonomous agentic loops — where an agent plans, traverses, evaluates intermediate results, and decides whether to continue, backtrack or conclude — are what several of the metadata user stories actually require. Change impact assessment after a classification version change cannot be answered by one prompt–response exchange, because the queries that need to be issued depend on what earlier queries returned. The sprint architecture does not implement that loop, but it deliberately builds the harness for it.
+The implementation detail behind all of this — which tools are exposed, how they are mounted and transported, how the equivalence between the two surfaces is tested — is in [metadata/Report.md](../metadata/Report.md).
 
 ### 3.4 Architecture Descriptions
 
@@ -261,19 +262,14 @@ The system operates as a decision-and-action loop driven by an LLM with tool-cal
 
 1. **User input** — a natural language objective and, optionally, a starting URL
 2. **LLM decision engine** — evaluates page context and decides the next action using chain-of-thought reasoning
-3. **Tool execution layer** — fetches hyperlinks, extracts content, or operates a headless browser for dynamic interaction
+3. **Tool execution layer** — fetches hyperlinks, extracts page content, or operates a headless browser for dynamic interaction
 4. **Feedback loop** — returns retrieved content to the LLM, which determines whether the task is complete or requires further navigation
 
-The tools are kept "atomic" (performing only one small task) for higher reliability:
-- `fetch_page_urls`: retrieve hyperlinks from a URL, allowing the agent to move from "hub" listing pages to "leaf node" detail pages
-- `fetch_page_content`: fetch fully rendered page text, filtering out raw markup
-- `interact_with_web`: Playwright-based interaction — `click`, `type` or `scroll` — for dynamic content
+Two design choices carry most of the prototype's behaviour. The tools are kept **atomic** — each performs one small task — which makes the model's tool-calling markedly more reliable. And the control loop is deliberately **thin**: it forwards calls and results and does nothing else, so all navigation strategy lives in the system prompt rather than in code. That is what allows a new collection task to be set up without writing anything.
 
-The control loop itself is deliberately thin — it forwards tool calls, appends results to the message history, and iterates until the model returns content instead of a tool call. All navigation strategy lives in the system prompt, which encodes three operating modes (exploration, enumeration, extraction) and names two explicit failure states: returning a directory URL instead of the item, and extracting content from a list page.
+**A note on collection practice.** The fetching tools mask the browser fingerprint so that the headless browser is not identifiable as one. This is what allows the prototype to work on sites that block headless clients, but it is an active measure to avoid bot detection rather than a neutral technical choice. An NSI adopting this approach should decide deliberately whether it is compatible with its own policy on automated collection, the target site's terms of use, and the transparency expectations that apply to official statistics. This is a property of the agentic-scraping pattern rather than a defect of this implementation, and it is offered as one of the considerations the T12.1 architecture work may want to take up alongside data protection.
 
-**Technical configuration.** Python, with Playwright (and `playwright-stealth`) for headless browser automation and an OpenAI-compatible client for tool-calling. A single YAML file defines API key, endpoint, model name and temperature. Token usage is printed after each run, making the cost of a given task directly observable.
-
-**A note on collection practice.** The two fetching tools mask the browser fingerprint — running Playwright through a stealth wrapper and presenting a desktop Chrome user-agent — so that the headless browser is not identifiable as such. This is what allows the prototype to work on sites that block headless clients, but it is an active measure to avoid bot detection rather than a neutral technical choice. An NSI adopting this approach should decide deliberately whether it is compatible with its own policy on automated collection, the target site's terms of use, and the transparency expectations that apply to official statistics. This is an architectural constraint of the agentic-scraping pattern rather than a defect of this implementation, and it is offered as one of the considerations the T12.1 architecture work may want to take up alongside data protection.
+Tool interfaces, configuration and dependencies are described in [webcorner/Report.md](../webcorner/Report.md).
 
 #### 4.2.4 Evaluation Results
 
@@ -312,7 +308,7 @@ Each run reached atomic-level results rather than stopping at a listing page, wh
 
 Core fetching, extraction and reasoning are fully functional. Playwright integration is in place and the system can launch headless browsers and render dynamic content, but the interaction between the LLM's decision timing and asynchronous JavaScript execution is still being refined. Automated benchmarking against standard datasets has not been started.
 
-Reviewing the code against this report surfaced one defect and three smaller inconsistencies. The defect — `playwright-stealth` was imported by two tools but missing from `requirements.txt`, so the documented getting-started sequence failed on a fresh clone — has been fixed. The remaining items are recorded in the prototype report: `interact_with_web` does not apply the same fingerprint masking as the other two tools, the `use_extra_body` reasoning flag in `config.yaml` is overridden in code, and the task prompt is edited in `main.py` rather than supplied as an argument.
+Reviewing the code against the documentation also surfaced a number of smaller issues affecting how easily a third party can reproduce or vary a run; these are recorded in the prototype report.
 
 See [webcorner/README.md](../webcorner/README.md) for getting-started instructions and [webcorner/Report.md](../webcorner/Report.md) for the full write-up.
 
@@ -337,25 +333,17 @@ Beyond exploration and interrogation, the prototype allows users to enrich the g
 
 #### 4.3.3 Architecture
 
-Five components with distinct responsibilities:
+A web frontend providing the graph canvas, chat, search and editing; a Python backend serving the REST API and the MCP endpoints and calling the LLM on behalf of the chat; a knowledge graph that is the single source of truth for nodes and edges, with its schema set per deployment profile; and a pluggable LLM. During the sprint the model was `gemma4-26b-moe` on the SSPCloud-hosted endpoint, replaceable with any OpenAI-compatible endpoint including a locally hosted one.
 
-| Component | Responsibility |
-|---|---|
-| React frontend | Graph canvas (React Flow), chat, search, editing dialogs; communicates with the backend only over HTTP |
-| Node.js build toolchain | Compiles the React workspaces into static files (build time only) |
-| Python backend (FastAPI + uvicorn) | Serves static files, the REST API and the MCP endpoints; calls the LLM on behalf of the chat |
-| Knowledge graph | Single source of truth for nodes and edges; persisted as JSON per profile and held in memory as a NetworkX graph for traversal and query; schema configurable per deployment profile |
-| LLM | Pluggable external service. During the sprint: `gemma4-26b-moe` on the SSPCloud-hosted vLLM endpoint; replaceable with any OpenAI-compatible endpoint including on-premises Ollama or vLLM, or with Anthropic's API |
-
-The application starts and runs with no LLM key configured: the graph API and the MCP server remain fully operational and the chat panel is hidden. This lets an NSI evaluate the graph layer before committing to a model deployment.
-
-**Domain model.** The ESS profile (`stat-metadata`) defines 18 node types and 27 relationship types modelled after GSIM, covering actors and programmes, the dataset chain, semantic building blocks, collection instruments and the technical production layer. Relationship types include the provenance edges needed for lineage (`INPUT_TO`, `PRODUCES_OUTPUT`) and the classification-versioning edges needed for change impact (`HAS_VERSION`, `DERIVED_FROM`, `PREDECESSOR_OF`, `CORRESPONDS_TO`). The seed graph holds 256 nodes and 327 edges. Configuration is fully driven by the profile schema — no code changes are needed to adapt the domain model.
+Two properties matter for the deliverable. First, the application starts and runs with **no LLM key configured** — the graph and its MCP interface remain fully operational and the chat is simply hidden — so an organisation can adopt the graph layer before taking any decision about a model. Second, the domain model is **entirely configuration**: the ESS profile defines its node and relationship types, including the provenance edges lineage needs and the classification-versioning edges change-impact analysis needs, without any code change. Adapting the system to another organisation's information model is a configuration exercise.
 
 **MCP layer.** Described in §3.3.
 
-**Skills and expert agents.** Rather than relying on a single static system prompt, the chat service supports progressive loading of domain knowledge skills — structured markdown files containing established concepts, standard classifications, methodological conventions and example artefacts for a statistical domain. Skills load in two stages: metadata only (name, description, when-to-use) at startup, giving the system awareness of what exists without occupying context; full content lazily, on the first request that requires it. Each skill declares its own `allowed-tools`, which ties the mechanism to the MCP tool layer: a skill both supplies domain knowledge and constrains which graph operations may be used while it is active. Multiple skills can be active simultaneously, and switching or stacking them mid-session does not require restarting the workflow.
+**Skills and expert agents.** Rather than relying on a single static system prompt, domain knowledge can be supplied as *skills* — structured markdown files carrying the established concepts, standard classifications and methodological conventions of a statistical domain — and attached to expert agents. Skills are loaded progressively: the system knows at startup what skills exist, but a skill's content only enters the model's context when a user is actually working in that domain. Each skill also declares which graph operations it may use, so it both supplies domain knowledge and constrains what the agent can do while it is active. Several can be active at once, and switching between them mid-session does not restart the workflow.
 
-The sprint profile ships two skills as worked examples — Graph Analysis, and GSIM Lineage and Change Impact — and three expert agents through which skills are activated: a Metadata Expert, an ESS Expert, and a deliberately minimal Population Domain Expert included to show how an organisation would define a narrow domain agent of its own.
+The practical effect is that guidance during curation references an organisation's own conventions rather than generic metadata advice. The sprint profile ships two skills and three expert agents as worked examples, one of them deliberately minimal to show how an organisation would define a narrow domain agent of its own.
+
+Component detail, the full domain model and the mechanics of skill loading are in [metadata/Report.md](../metadata/Report.md).
 
 #### 4.3.4 Use Cases Explored
 
@@ -456,30 +444,40 @@ See [metadata/README.md](../metadata/README.md) and [metadata/Report.md](../meta
 
 ## 6. Quality of GenAI-based Approaches
 
-This section captures observations and reflections on the quality of results produced by generative AI approaches during the sprint.
+This section records what the sprint suggests about the quality of results obtainable with generative AI in this domain, and what changed since D12.1.
 
-### 6.1 Strengths Observed
+### 6.1 Open models on infrastructure an NSI can operate were sufficient
 
-- LLMs performed well on **structured English-language tasks** such as comparing statistical releases with news articles and extracting information from web pages.
-- **Multilingual comparison** (e.g., Dutch source vs. English article) worked correctly in tested cases.
-- **Agentic tool-calling** enabled flexible, multi-step workflows that adapted to different website structures without manual code changes.
-- **Prompt engineering** had a significant and positive impact on result quality when done carefully.
-- An **open-weights model on infrastructure of a kind an NSI could realistically operate** (`gemma4-26b-moe` on SSPCloud) was sufficient for all three use cases at prototype level, without recourse to a commercial API.
+The clearest takeaway from the sprint is that the open models hosted within SSPCloud worked well across several of the prototypes and examples the groups worked on. Media consistency checking, autonomous web navigation and grounded conversation over a metadata graph were all carried out with the same open-weights model, without recourse to a commercial API.
 
-### 6.2 Weaknesses and Failure Modes
+This matters more than any individual result, because it changes what an NSI has to assume before starting. Applying similar solutions within these areas does not require a commercial model or a decision to send content to an external provider; it requires the ability to serve an open model of moderate size, which is a far more tractable prerequisite and one that several offices can already meet. Multilingual work was part of this: a Dutch statistical release compared against an English article was handled correctly, which is directly relevant in a system where offices publish in national languages and coverage often appears in English.
 
-- Models can **miss subtle mismatches**, such as reference-period year differences in non-English text (Slovenian test case).
-- **Chain-of-thought reasoning** improves quality but increases latency and cost, creating a practical trade-off.
-- **Open-source models** showed promising but uneven quality compared to commercial alternatives on the hardest cases.
-- Model outputs are **non-deterministic**: the same input may produce different quality outputs across runs.
-- **Timing between model decisions and asynchronous browser behaviour** is an unsolved practical problem for agentic scraping of JavaScript-heavy sites.
+### 6.2 Differences remain on advanced reasoning and agentic workflows
 
-### 6.3 Practical Recommendations
+The open models tested performed somewhat less well where the task demanded more advanced reasoning, or where an agentic workflow required sustained multi-step judgement.
 
-- Use **structured prompts** with explicit step-by-step instructions (e.g., extract reference period before making a judgement).
+The clearest instance is the reference-period case in the News Corner tests: an article and a release that shared a topic and quarter label but referred to different years. The open model accepted them as consistent; a commercial model did not. That gap was closed by requiring explicit extraction of the full reference period before any judgement — a prompt-design fix rather than a change of model — which is the useful form of the finding: the difference showed up in a specific, identifiable kind of reasoning, and was addressable by design.
+
+Agentic workflows show the same pattern in a different form. Enabling chain-of-thought reasoning materially improves output quality, and the strategy encoded in the system prompt does much of the work that would otherwise require a stronger model. Both cost something — latency, tokens, and effort spent on prompt design.
+
+Two further limitations apply regardless of model: outputs are **non-deterministic**, so the same input may vary in quality across runs; and the **timing between model decisions and asynchronous browser behaviour** remains an unsolved practical problem when scraping JavaScript-heavy sites.
+
+### 6.3 The ecosystem for building agentic solutions has moved substantially since D12.1
+
+A distinct experience from developing these prototypes, and one that is not a property of any single model, is how much the component ecosystem for building agentic AI solutions has developed since the previous sprint and the delivery of D12.1.
+
+- **Tool-calling** is no longer something to demonstrate in principle. It was applied in practice in both prototypes, as the mechanism by which a model drives retrieval and traversal rather than merely interpreting content it is given.
+- **MCP** was applied in practice as well, making a statistical system reachable by external agents over a standard protocol rather than through bespoke integration.
+- **Agentic skills** (the `SKILL.md` convention and equivalents) have emerged as a further usable tool: a way to supply domain knowledge and constrain an agent's scope of action as configuration rather than code.
+
+The practical consequence for WP12 is that the building blocks for agentic solutions are now available off the shelf rather than needing to be invented per project. Between D12.1 and D12.2 the constraint moved: it is less about whether such systems can be built, and more about how well they work and how their use is governed.
+
+### 6.4 Practical Recommendations
+
+- Use **structured prompts** with explicit step-by-step instructions (e.g. extract the reference period before making a judgement); this is where open models most often close the gap on harder cases.
 - Implement **benchmark datasets** to track quality over time and across model changes.
-- Consider **model comparison** as part of the evaluation workflow (e.g., running difficult cases through multiple models). The News Corner supplementary test is a good pattern: when a model fails a case, re-run it on a stronger model to distinguish a model limitation from an unsolvable task.
-- Keep **tool interfaces atomic** and well-defined to reduce failure points in agentic setups.
+- Consider **model comparison** as part of the evaluation workflow. The News Corner supplementary test is a good pattern: when a model fails a case, re-run it on a stronger model to distinguish a model limitation from an unsolvable task.
+- Keep **tool interfaces narrow and well-defined** to reduce failure points in agentic setups.
 - Where a capability may later be needed by other systems, **expose it through a standard protocol** rather than only through an application-specific interface.
 
 ---
@@ -522,27 +520,19 @@ This is the second of the two evaluation questions in §2, and the one the prese
 - Explore multi-agent architectures for complex statistical workflows.
 - Assess the impact of retrieval-augmented generation (RAG) on output quality for metadata and dissemination tasks.
 
-### 7.6 Coverage of the Remaining High-Value Areas
-
-D12.2 covers areas A and E. The sprint architectures extend towards the other three without requiring new foundations:
-
-- **Draft text for the *Analyse* step (B).** The metadata user story US-06 already generates plain-language narrative from graph content for publication purposes, and the skill mechanism is the natural way to encode an organisation's house conventions for such text. The step from explaining a node to drafting an analytical passage grounded in the same metadata is short.
-- **Improving and translating production code (C).** Not addressed by either prototype. The `ProductionSolution` node type in the metadata profile links statistical programmes to the pipelines and repositories that implement them, which would give a code-oriented use case the context an LLM needs about what a piece of code is *for* — but this is a starting point, not a partial result.
-- **Dissemination chatbots (D).** The closest existing work. The metadata prototype's MCP layer already lets an external assistant answer questions grounded in the graph, which is a dissemination chatbot in all but framing; what is missing is a public-facing interface, an access model governing what an anonymous user may query, and evaluation against the standards that apply to published statistical information.
-
-The common prerequisite in all three cases is the same one identified in §8: an evaluation method robust enough to say whether the output is good enough to use.
-
 ---
 
 ## 8. Conclusions
 
 The Stockholm sprint set out to advance both prototype development and the material needed for this deliverable. It produced two runnable prototypes and one experiment, satisfying the T12.2 requirement of at least two prototypes across at least two high-value areas — data and metadata handling, and analysis of large documents and web page data. The results support four conclusions.
 
-**First, the sprint moved WP12 from LLMs as text processors to LLMs as actors.** In D12.1 the prototypes used models to interpret content that conventional code had already retrieved. In D12.2 both prototypes let the model decide what to retrieve or traverse next. That shift is what produces the sprint's central practical argument: capability that used to require per-site or per-source code is now carried by a system prompt and a small set of atomic tools, moving the maintenance burden from many fragile scripts to one prompt and one tool layer. For statistical production, where source systems and websites change continuously and maintenance dominates the total cost of a data collection, this is the most consequential property observed.
+**First, the sprint moved WP12 from LLMs as text processors to LLMs as actors.** In D12.1 the prototypes used models to interpret content that conventional code had already retrieved. In D12.2 both prototypes let the model decide what to retrieve or traverse next. That shift is what produces the sprint's central practical argument: capability that used to require per-site or per-source code is now carried by a system prompt and a small set of narrow tools, moving the maintenance burden from many fragile scripts to one prompt and one tool layer. For statistical production, where source systems and websites change continuously and maintenance dominates the total cost of a data collection, this is the most consequential property observed.
+
+What made the shift possible in the space of a sprint was not only model capability but the maturing of the surrounding ecosystem, as §6.3 describes: tool-calling, MCP and agentic skills are now components that can be picked up and used, rather than mechanisms that have to be built.
 
 **Second, an open-weights model on infrastructure an NSI could realistically operate was sufficient for all three use cases at prototype level.** Every use case ran against the same SSPCloud-hosted model. It handled multilingual comparison of statistical releases, autonomous multi-step web navigation, and grounded conversation over a metadata graph. It was outperformed by a commercial model on the single hardest case — a reference-year mismatch expressed implicitly in Slovenian — and the manner of that failure was itself instructive: the gap was closed by requiring explicit extraction of the full reference period before judgement, which is a prompt-design fix rather than a reason to change model. The practical conclusion is that model capability is not the binding constraint at this level of ambition; the ability to serve a medium-sized tool-calling model is. Since the environment used here admits only non-sensitive material, this says nothing about processing sensitive data — but it does establish that the pattern an office would need to reproduce for that purpose is an ordinary one, and that choosing an open model over a proprietary one does not cost capability in these applications.
 
-**Third, the way a capability is exposed matters as much as the capability itself.** The two prototypes use tool-calling in structurally different ways — as a private control loop inside an agent, and as a published interface over a standard protocol — and the difference determines what can be built next. By exposing graph operations through both a REST API for humans and an MCP layer for agents, backed by one service layer and briefed at runtime from the deployment profile, the Metadata Graph stops being an application with an AI feature and becomes a data source that arbitrary agents can reason over. This is a general pattern, not a metadata-specific one, and it is the sprint's most transferable architectural result. It also raises governance questions the project has not yet addressed: when an agent can query and modify a statistical system through a standard protocol, the boundaries of what it may see and change become an explicit design decision rather than an implicit consequence of the user interface.
+**Third, the way a capability is exposed matters as much as the capability itself.** The two prototypes use tool-calling in structurally different ways — as a private control loop inside an agent, and as a published interface over a standard protocol — and the difference determines what can be built next. By offering its graph operations both to people through a browser and to agents over a standard protocol, backed by one underlying service, the Metadata Graph stops being an application with an AI feature and becomes a data source that arbitrary agents can reason over. This is a general pattern, not a metadata-specific one, and it is the sprint's most transferable architectural result. It also raises governance questions the project has not yet addressed: when an agent can query and modify a statistical system through a standard protocol, the boundaries of what it may see and change become an explicit design decision rather than an implicit consequence of the user interface.
 
 **Fourth, the prototypes answer the first evaluation question and set up the second.** As §2 sets out, "evaluation" here covers two different questions. The first — is this reasonable, buildable, reusable, operable under realistic conditions, and sound against sensible architectural principles — is the one this deliverable answers, and the answer across all three use cases is yes. The second — how accurate and reliable the output actually is, measured systematically against ground truth — was outside the preconditions of this work: three days, an environment restricted to non-sensitive material, and no benchmark datasets to measure against.
 
