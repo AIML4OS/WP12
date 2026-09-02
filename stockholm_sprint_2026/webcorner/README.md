@@ -18,7 +18,7 @@ A narrative write-up of the prototype - architecture, configuration, evaluation 
 **Implemented Tools:**
 - `fetch_page_urls`: Uses Playwright to render the page and extract all valid hyperlinks.
 - `fetch_page_content`: Uses Playwright to extract the fully rendered text content.
-- `interact_with_web`: Allows the agent to perform actions like `click` or `scroll` to trigger dynamic content loading.
+- `interact_with_web`: Allows the agent to perform one of three actions - `click`, `type` or `scroll` - to trigger dynamic content loading or fill a search field. Records a video of each session to `recordings/`.
 
 ## Getting Started
 
@@ -62,6 +62,19 @@ To use Playwright some additional installation is required after setting up the 
 playwright install
 playwright install-deps
 ```
+
+### Notes on tool behaviour
+
+- `fetch_page_urls` and `fetch_page_content` run Playwright through `playwright-stealth` and set a
+  desktop Chrome user-agent, so the headless browser is not identifiable as one. This is what makes
+  the tools work on sites that block headless clients. Before using the prototype against a given
+  site, check that this is compatible with your organisation's policy on automated collection and
+  with the site's terms of use. `interact_with_web` does not apply the same masking.
+- Every fetch is logged to `output/` (one file per call) and every `interact_with_web` session is
+  recorded as a video in `recordings/`. Useful for tracing what the agent saw; be aware that a run
+  leaves local copies of the retrieved material.
+- `config.yaml` exposes `llm.use_extra_body`, but `main.py` currently sets it to `True` before the
+  first request, so extended reasoning is always on regardless of the configured value.
 
 ### Input and Output
 - **Input:** A natural language prompt including a starting URL and a specific goal (e.g., *"Find all job listings related to information security on the SCB website. Start at www.scb.se"*).

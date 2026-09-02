@@ -57,8 +57,10 @@ just the period label. That is a prompt-design finding, and an actionable one â€
 require explicit extraction and comparison of the full reference period before any consistency
 judgement is made.
 
-Taken together: an open-weights model hosted on shared European infrastructure is a credible basis
-for statistical media monitoring, with a known weak spot that structured prompting can address.
+Taken together: an open-weights model hosted on infrastructure an NSI could realistically operate is
+a credible basis for statistical media monitoring, with a known weak spot that structured prompting
+can address. Note that all test material was public, as the shared environment permits only
+non-sensitive data; these results say nothing about processing sensitive material.
 
 ## Architecture designed
 

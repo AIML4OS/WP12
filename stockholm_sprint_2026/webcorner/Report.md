@@ -23,7 +23,11 @@ The use cases explored for official statistics were:
 
 Worked examples of all three are checked in as [`output_compare_NSI_numbers.md`](output_compare_NSI_numbers.md),
 [`output_outside_job_vacancies.md`](output_outside_job_vacancies.md) and
-[`output_coolblue.md`](output_coolblue.md).
+[`output_coolblue.md`](output_coolblue.md). Each run reached atomic-level results — the two national
+inflation figures with their period and source URLs, fifteen products with prices and review scores,
+and five individual field-interviewer vacancies with their direct URLs — rather than stopping at a
+listing page. The job-vacancy run also illustrates the URL-discovery capability: it was given no
+starting URL and located the CBS recruitment site itself.
 
 ## Architecture
 
@@ -71,9 +75,9 @@ The scraper relies on three primary tools, all implemented in [`tools/`](tools/)
 
 | Tool | Purpose |
 |---|---|
-| `fetch_page_urls` | Renders dynamic elements and extracts hyperlinks, allowing the agent to move from "hub" listing pages to "leaf node" detail pages. |
-| `fetch_page_content` | Extracts fully rendered text, filtering out raw markup to provide clean input for LLM processing. |
-| `interact_with_web` | Uses Playwright to simulate human actions such as scrolling or clicking, to trigger JavaScript-heavy content. |
+| `fetch_page_urls` | Loads the page until the network is idle so dynamic elements render, then extracts and normalises every hyperlink in the resulting DOM, allowing the agent to move from "hub" listing pages to "leaf node" detail pages. |
+| `fetch_page_content` | Extracts the rendered visible text of the page body, stripping all markup and collapsing whitespace to reduce token count. |
+| `interact_with_web` | Uses Playwright to perform one of three actions — `click`, `type` or `scroll` — to trigger JavaScript-heavy content or fill a form or search field. Records a video of each session to `recordings/`. |
 
 The system prompt encodes three operating modes over these tools — **exploration** (map the site,
 distinguish hubs from leaf nodes, follow pagination), **enumeration** (treat a list page as a
@@ -81,14 +85,37 @@ waypoint, not a destination), and **extraction** (only fetch content once an ato
 reached). Two explicit failure states are named in the prompt: the "overview trap" (returning a
 directory URL instead of the item) and the "single-click trap" (extracting content from a list page).
 
+Three implementation details are worth recording, because they affect both reproducibility and how
+the prototype should be used:
+
+- **Browser fingerprint masking.** `fetch_page_urls` and `fetch_page_content` run Playwright through
+  the `playwright-stealth` wrapper and set a desktop Chrome user-agent and viewport, so the headless
+  browser does not identify itself as such. This makes the tools work on sites that block headless
+  clients, but it is an active measure to avoid bot detection rather than a neutral technical choice.
+  An NSI adopting this prototype should decide deliberately whether that is compatible with its own
+  policy on automated collection, the target site's terms of use, and the transparency expectations
+  that apply to official statistics. `interact_with_web` does not apply the same masking, so tool
+  behaviour is not uniform in this respect.
+- **Everything fetched is written to disk.** Both fetch tools log their results to `output/` (one
+  file per call), and `interact_with_web` records a video of each browser session to `recordings/`.
+  This is useful for tracing what the agent actually saw, but means a run leaves a local copy of the
+  retrieved material, which is a data-management consideration rather than a neutral debug feature.
+- **The reasoning toggle in the configuration file is currently inert.** `config.yaml` exposes
+  `llm.use_extra_body`, but `main.py` overwrites it to `True` before the first request, so extended
+  reasoning is always requested regardless of the configured value. Anyone wanting to measure the
+  latency and cost of chain-of-thought reasoning against a non-reasoning baseline must change the
+  code, not the configuration.
+
 ## Technical configuration and implementation
 
 - **Infrastructure:** developed in the SSPCloud (Onyxia) environment. Requires an
   OpenAI-compatible LLM API with tool-calling support.
 - **Model used during the sprint:** `gemma4-26b-moe`, served from the SSPCloud-hosted vLLM endpoint
   at `https://llm.lab.sspcloud.fr/api`.
-- **Dependencies:** Python, with Playwright for headless browser automation and the `openai` client
-  library for the tool-calling protocol. See [`requirements.txt`](requirements.txt).
+- **Dependencies:** Python, with Playwright and `playwright-stealth` for headless browser automation,
+  `omegaconf` for configuration and the `openai` client library for the tool-calling protocol. See
+  [`requirements.txt`](requirements.txt). Playwright also needs its browsers installed separately
+  (`playwright install && playwright install-deps`), which the README documents.
 - **Configuration:** a single YAML file ([`config/config_template.yaml`](config/config_template.yaml))
   defining the API key, endpoint, model name, temperature, and whether extended reasoning
   (`enable_thinking`) is requested from the model.
@@ -101,13 +128,13 @@ directory URL instead of the item) and the "single-click trap" (extracting conte
 |---|---|
 | Efficiency gain | High in generic applicability; low in raw runtime speed. Setup time for a new task is close to zero, but LLM reasoning makes each run slower than a hardcoded script. |
 | Reusability | High — highly reusable across diverse sites without new code. |
-| Data accessibility | High — targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting, and bot protection rather than by availability. |
+| Data accessibility | High — targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability; note that the prototype currently masks its browser fingerprint to work around the last of these. |
 | On-prem compatibility | Medium/high — the software has no external dependency beyond an OpenAI-compatible endpoint, but running it well on-premises requires local infrastructure capable of serving a medium-sized tool-calling model. |
-| Low-hanging fruit for NSIs | Medium/high — small codebase (one control loop and three tools) and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition. |
+| Low-hanging fruit for NSIs | Medium/high — small codebase (one control loop and three tools) and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition. Running a task also requires editing the prompt in `main.py`; there is no command-line or file-based input yet. |
 | Evaluation robustness | Low — outputs were assessed by inspection against known page content. No benchmark dataset or ground truth was established during the sprint; automated benchmarking remains an open roadmap item. |
 | Feasibility | Medium |
 | Lifespan | Medium/high — resilience to site redesign is the central design argument, and the tool interface is model-agnostic. |
-| Cost effectiveness | Medium — a task consumes many round-trips, and chain-of-thought reasoning increases token count further. Cost is bounded when the model is self-hosted; against a commercial API it scales with the number of pages traversed. |
+| Cost effectiveness | Medium/high — the three checked-in runs completed on 13k, 14k and 24k total tokens including reasoning, so a single task costs cents at commercial rates and nothing beyond compute when self-hosted. Cost scales with the number of pages traversed rather than with a fixed overhead, so exhaustive enumeration of a large listing is the case to watch. |
 | Performance vs. chatbots | Comparable, and often superior, due to specialised system prompting. |
 
 ## Key takeaways
@@ -125,6 +152,12 @@ Core fetching, extraction and reasoning are fully functional. Playwright integra
 and the system can launch headless browsers and render dynamic content, but the interaction between
 the LLM's decision timing and asynchronous JavaScript execution is still being refined to ensure
 reliable capture on dynamic sites. Automated benchmarking against standard datasets has not been started.
+
+Smaller open items identified when the code was reviewed against this report: `interact_with_web`
+does not apply the same fingerprint masking as the other two tools; the `use_extra_body`
+configuration flag is overridden in code; and the task prompt is edited in `main.py` rather than
+supplied as an argument. None of these block use of the prototype, but all three affect how easily
+someone else can reproduce a run or vary it systematically.
 
 ## Conclusions
 
