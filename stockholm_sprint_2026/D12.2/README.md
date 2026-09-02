@@ -30,7 +30,9 @@ The work package proceeds from the observation that LLMs already offer substanti
 
 Across these areas WP12 pursues three objectives: to explore the ability of LLMs available in 2024–2027 to integrate into the production and support of official statistics; to explore what benefits fine-tuning existing LLMs brings to the use cases; and — pervasive to both — to define the architectural enablers and constraints that apply when LLMs are used.
 
-The work package is organised in three tasks. **T12.1** analyses how LLMs can be integrated into production in ways that align data-protection strategy with data sensitivity, and produces architectural guidance that supports the prototypes. **T12.2** demonstrates the use of pre-existing LLMs through at least two prototypes covering at least two of the high-value areas. **T12.3** examines fine-tuning as a route to a specialised statistical LLM.
+The work package is organised in three tasks. **T12.1** analyses how LLMs can be integrated into production in ways that align data-protection strategy with data sensitivity, and is to produce architectural guidance supporting the prototypes. **T12.2** demonstrates the use of pre-existing LLMs through at least two prototypes covering at least two of the high-value areas. **T12.3** examines fine-tuning as a route to a specialised statistical LLM.
+
+**Status of T12.1 at the time of writing.** Collection of input for the architecture work has begun, but no guidance documents or other T12.1 material have yet been produced. Nothing in this deliverable should be read as applying or summarising established T12.1 guidance. The architectural observations and the evaluation criteria recorded here are the other way round: they are an indication, drawn from building and running the prototypes, of what may be worth having in mind when an architecture or design for AI solutions in these application areas is developed — and they are offered as input to T12.1 rather than as output from it.
 
 ### 1.2 Objectives of D12.2
 
@@ -50,7 +52,7 @@ Against that framing, the objectives of this deliverable are to:
 
 - Document the prototypes developed and extended during the Stockholm sprint (June 2026), with enough code, documentation and getting-started guidance that they can be run by people who were not part of the sprint groups
 - Provide evaluation results using a shared evaluation framework
-- Describe architectural choices and their implications, feeding observations back into the architectural guidance developed under T12.1 — in particular the consequences of choosing open-source over proprietary models for reusability, practicality and data sensitivity
+- Describe architectural choices and their implications, and record them as input to the architecture work under T12.1 — in particular the consequences of choosing open-source over proprietary models for reusability, openness and data sensitivity
 - Capture lessons learned and guidance for NSIs considering LLM-based approaches
 - Identify scope, limitations, and future directions
 
@@ -78,7 +80,7 @@ D12.2 consists of a report and a prototype. In practice the prototype requiremen
 |---|---|---|---|
 | **Web Corner** — agentic web scraper | E | Runnable prototype, code in this repository | Agentic tool-calling: a small, self-contained agent loop where capability is carried by the system prompt and a few atomic tools rather than by application code |
 | **Metadata Graph** | A | Runnable prototype, [own repository](https://github.com/AIML4OS/WP12_MetadataGraph) | A full application architecture: a domain-configurable knowledge graph with a human interface and a parallel machine interface (MCP), skills-based domain knowledge injection, and profile-driven adaptation |
-| **News Corner** — statistical media consistency | E | Experiment report, no runnable code | Feasibility evidence: whether an open-weights model hosted on shared European infrastructure can perform a genuinely difficult multilingual comparison task, and where its limits lie |
+| **News Corner** — statistical media consistency | E | Experiment report, no runnable code | Feasibility evidence: whether an open-weights model hosted on infrastructure an NSI could realistically operate can perform a genuinely difficult multilingual comparison task, and where its limits lie |
 
 The two prototypes were chosen to sit at opposite ends of a spectrum rather than to duplicate each other. Web Corner is minimal — one control loop, three tools, one configuration file — and shows how much capability can be obtained with very little code when the model is doing the reasoning. The Metadata Graph is a structured application and shows what is required when the AI capability must be embedded in an organisation's information model, governed by a schema, and made available to other systems. Between them they cover the two realistic shapes an NSI's first LLM system is likely to take.
 
@@ -102,6 +104,14 @@ To support sustainability and maintainability of AI systems developed within the
 | Lifespan | How long is the prototype expected to remain useful given evolving technologies and data? |
 | Cost effectiveness | What are the operational costs (API calls, compute, maintenance) relative to the value? |
 
+**Two levels of evaluation, only one of which this deliverable reaches.** It is useful to separate two questions that the word "evaluation" covers.
+
+The first is whether a prototype is *reasonable* — whether it can be built, run, reused and operated under realistic conditions, and whether it respects sensible architectural principles. That is what the nine criteria above address, and it is what this deliverable evaluates. These criteria were formulated during the work rather than derived from finished guidance; they should be read as an indication of the dimensions that appear to matter when designing AI solutions in this domain, not as a settled framework.
+
+The second is whether a prototype is *effective* — how accurate, reliable and useful its output actually is, measured systematically against ground truth. The work so far has not had the preconditions for this. The sprint was three days long, the shared environment permits only non-sensitive material (see §3.2), and no benchmark datasets existed to measure against. Where this deliverable reports on output quality it therefore reports observations and individual test cases, not systematic measurement.
+
+That distinction is not a caveat to apologise for; it defines what the prototypes are for. Their value is precisely that they make the second kind of evaluation possible: they are working systems that could serve as the basis for systematic effectiveness evaluation, carried out in environments where sensitive material may also be used and where an NSI's own data provides the ground truth. §8 returns to this.
+
 A note on how the *on-prem compatibility* rating should be read. All three use cases are architecturally on-prem compatible: none of them depends on a specific vendor, and each talks to an LLM through a replaceable, standard interface. The rating therefore reflects **what an NSI must provide locally for the system to work well**, not whether the software can be pointed at a local endpoint. Two of the three require a model with tool-calling support, which in practice means hosting a medium-sized model on local GPU infrastructure — a real prerequisite, and the main reason those two are rated medium/high rather than high.
 
 ---
@@ -118,13 +128,19 @@ The prototypes share a common architectural approach:
 
 ### 3.2 Shared Infrastructure
 
-- **SSPCloud (Onyxia)**: shared development and hosting environment provided by WP3
+- **SSPCloud (Onyxia)**: shared development and hosting environment made available to the project through WP3
 - **LLM endpoint**: all three use cases were tested against `gemma4-26b-moe`, served from the SSPCloud-hosted vLLM endpoint (`https://llm.lab.sspcloud.fr/api`), with supplementary comparisons against commercial APIs
 - **Tool-calling**: used by both prototypes for structured interaction with external systems
 
-That all three use cases ran against the same open-weights model on the same shared European infrastructure is itself a result. It means the differences observed between use cases reflect the tasks and the architectures rather than differences in model access, and it demonstrates that a shared ESS-level inference service is sufficient for prototype work of this kind.
+**What SSPCloud is, and what it is not.** SSPCloud is in practice a cloud service available to NSIs, operated by INSEE, the French statistical office. It carries the conditions of such a service — among them a requirement that only non-sensitive material may be handled in the environment. All sprint work therefore used public or otherwise non-sensitive data, and nothing here demonstrates that these prototypes may be used on sensitive statistical material. Doing that would require an environment cleared for it, which is a separate matter from whether the software runs.
 
-This bears directly on the open-source versus proprietary question raised in the T12.1 architectural guidance. On **data sensitivity**, an SSPCloud-hosted open-weights model keeps content inside European public infrastructure, which is the decisive property for any use case touching non-public statistical material — and the metadata prototype strengthens this further by running fully without an LLM key at all, so the graph layer can be deployed before any model decision is taken. On **practicality**, the open model was sufficient for every task attempted and was outperformed by a commercial model only on the single hardest comparison case, where the gap was closed by prompt design rather than by changing model. On **reusability**, both prototypes reach their model through a standard OpenAI-compatible interface, so the choice between an SSPCloud endpoint, a locally hosted vLLM or Ollama server, and a commercial API is a configuration change rather than a code change — which is the property that makes the same prototype adoptable by NSIs with different constraints. The cost of that portability is the infrastructure prerequisite recorded in §2: a tool-calling model of useful size still has to be served from somewhere.
+What the setup does provide is a realistic picture of the conditions many NSIs could establish — either locally, or within whatever arrangements are available in their own country for using comparable services. The same applies to serving open LLMs: an office able to host a medium-sized open-weights model reproduces the essential property of this environment without depending on this particular service.
+
+That all three use cases ran against the same open-weights model on the same infrastructure is itself a result. It means the differences observed between use cases reflect the tasks and the architectures rather than differences in model access, and it shows that a shared inference service of this kind is sufficient for prototype work.
+
+**Openness, reusability and data sensitivity.** These three questions turn out to dominate the architectural picture, and the prototypes speak to each of them. On **openness and practicality**, the open-weights model was sufficient for every task attempted, and was outperformed by a commercial model only on the single hardest comparison case, where the gap was closed by prompt design rather than by changing model — so choosing an open model did not cost capability at this level of ambition. On **reusability**, both prototypes reach their model through a standard OpenAI-compatible interface, so the choice between the SSPCloud endpoint, a locally hosted vLLM or Ollama server, and a commercial API is a configuration change rather than a code change; this is the property that lets the same prototype be adopted by offices working under different constraints. On **data sensitivity**, the relevant observation is about the shape of the solution rather than about what was processed: because the model endpoint is replaceable and the metadata prototype runs fully without an LLM key at all, an office can place the boundary between its data and any external service wherever its own rules require, and can deploy the non-AI parts before taking a model decision at all. Whether a given deployment is then permitted to handle sensitive material is a question for that office's own assessment, not something these prototypes settle.
+
+Taken together, the prototypes indicate that for several application areas within official statistics it is possible to establish IT solutions built on the strengths of generative AI under conditions that an NSI can realistically meet. The cost of that portability is the infrastructure prerequisite recorded in §2: a tool-calling model of useful size still has to be served from somewhere. These are observations offered as input to the T12.1 architecture work, not conclusions drawn from it.
 
 ### 3.3 Tool-calling and the Model Context Protocol
 
@@ -257,7 +273,7 @@ The control loop itself is deliberately thin — it forwards tool calls, appends
 
 **Technical configuration.** Python, with Playwright (and `playwright-stealth`) for headless browser automation and an OpenAI-compatible client for tool-calling. A single YAML file defines API key, endpoint, model name and temperature. Token usage is printed after each run, making the cost of a given task directly observable.
 
-**A note on collection practice.** The two fetching tools mask the browser fingerprint — running Playwright through a stealth wrapper and presenting a desktop Chrome user-agent — so that the headless browser is not identifiable as such. This is what allows the prototype to work on sites that block headless clients, but it is an active measure to avoid bot detection rather than a neutral technical choice. An NSI adopting this approach should decide deliberately whether it is compatible with its own policy on automated collection, the target site's terms of use, and the transparency expectations that apply to official statistics. This is an architectural constraint of the agentic-scraping pattern rather than a defect of this implementation, and it belongs in the T12.1 guidance alongside the data-protection considerations.
+**A note on collection practice.** The two fetching tools mask the browser fingerprint — running Playwright through a stealth wrapper and presenting a desktop Chrome user-agent — so that the headless browser is not identifiable as such. This is what allows the prototype to work on sites that block headless clients, but it is an active measure to avoid bot detection rather than a neutral technical choice. An NSI adopting this approach should decide deliberately whether it is compatible with its own policy on automated collection, the target site's terms of use, and the transparency expectations that apply to official statistics. This is an architectural constraint of the agentic-scraping pattern rather than a defect of this implementation, and it is offered as one of the considerations the T12.1 architecture work may want to take up alongside data protection.
 
 #### 4.2.4 Evaluation Results
 
@@ -418,6 +434,7 @@ See [metadata/README.md](../metadata/README.md) and [metadata/Report.md](../meta
 - Some use cases depend on **paywalled or restricted content** (e.g., newspaper articles behind paywalls).
 - **Language coverage** is uneven: English performs best, while other European languages show variable quality.
 - Access to **internal NSI metadata** and production systems was not available during the sprint; the metadata graph is populated with curated public example data rather than an organisation's real holdings.
+- The shared environment permits **only non-sensitive material**, so every use case was exercised on public or otherwise non-sensitive data. Nothing in this deliverable demonstrates that these prototypes may be used on sensitive statistical material; that requires an environment cleared for it and an assessment by the office concerned.
 - **Web access** is subject to robots.txt, terms of use, rate limiting and bot protection, which constrain the agentic scraper in practice more than data availability does.
 
 ### 5.3 Technical Limitations
@@ -430,10 +447,10 @@ See [metadata/README.md](../metadata/README.md) and [metadata/Report.md](../meta
 
 ### 5.4 Methodological Limitations
 
-- The **evaluation framework** relies partly on subjective assessments by sprint participants.
-- **Benchmark data is limited**: the News Corner benchmark method is specified but not executed at scale, and neither prototype established a scored benchmark or ground truth.
+- The **evaluation framework** relies partly on subjective assessments by sprint participants, and its criteria are an indication of what appears to matter rather than a settled framework (see §2).
+- **Systematic effectiveness evaluation was outside the preconditions of this work**, for the reasons set out in §2: a three-day sprint, an environment restricted to non-sensitive material, and no existing benchmark datasets. The News Corner benchmark method is specified but not executed at scale; the metadata user stories carry acceptance criteria but no scored benchmark; the web scraper's outputs were judged by inspection.
 - No **longitudinal evaluation** has been performed to assess how outputs change as models are updated.
-- Evaluation robustness is the weakest dimension across all three use cases, and is the clearest gap between the sprint outputs and material that could support an operational decision.
+- Consequently, this deliverable evaluates whether the prototypes are reasonable and reusable, not how accurate they are. Statements about output quality are observations from individual cases, and should not be read as measured performance.
 
 ---
 
@@ -447,7 +464,7 @@ This section captures observations and reflections on the quality of results pro
 - **Multilingual comparison** (e.g., Dutch source vs. English article) worked correctly in tested cases.
 - **Agentic tool-calling** enabled flexible, multi-step workflows that adapted to different website structures without manual code changes.
 - **Prompt engineering** had a significant and positive impact on result quality when done carefully.
-- An **open-weights model on shared European infrastructure** (`gemma4-26b-moe` on SSPCloud) was sufficient for all three use cases at prototype level, which is a meaningful result for NSIs with data-protection constraints.
+- An **open-weights model on infrastructure of a kind an NSI could realistically operate** (`gemma4-26b-moe` on SSPCloud) was sufficient for all three use cases at prototype level, without recourse to a commercial API.
 
 ### 6.2 Weaknesses and Failure Modes
 
@@ -478,8 +495,11 @@ This section captures observations and reflections on the quality of results pro
 
 ### 7.2 Evaluation and Benchmarking
 
-- Create shared benchmark datasets for each use case to enable systematic model comparison.
-- Execute the specified News Corner benchmark (synthetic articles at known alignment levels, scored by human evaluators).
+This is the second of the two evaluation questions in §2, and the one the present work could not reach. The prototypes are the means to reach it.
+
+- Use the prototypes as the basis for systematic effectiveness evaluation in environments cleared for sensitive material, where an organisation's own data can supply ground truth that public sources cannot.
+- Create shared benchmark datasets for each use case to enable systematic model comparison, against a fixed model version and repeated as models change.
+- Execute the specified News Corner benchmark (synthetic articles at known alignment levels, scored by human evaluators) as a template for the other use cases.
 - Develop human-in-the-loop evaluation workflows for ongoing quality assessment.
 - Compare LLM-based approaches with rule-based baselines and existing tools.
 
@@ -520,13 +540,15 @@ The Stockholm sprint set out to advance both prototype development and the mater
 
 **First, the sprint moved WP12 from LLMs as text processors to LLMs as actors.** In D12.1 the prototypes used models to interpret content that conventional code had already retrieved. In D12.2 both prototypes let the model decide what to retrieve or traverse next. That shift is what produces the sprint's central practical argument: capability that used to require per-site or per-source code is now carried by a system prompt and a small set of atomic tools, moving the maintenance burden from many fragile scripts to one prompt and one tool layer. For statistical production, where source systems and websites change continuously and maintenance dominates the total cost of a data collection, this is the most consequential property observed.
 
-**Second, an open-weights model on shared European infrastructure was sufficient for all three use cases at prototype level.** Every use case ran against the same SSPCloud-hosted model. It handled multilingual comparison of statistical releases, autonomous multi-step web navigation, and grounded conversation over a metadata graph. It was outperformed by a commercial model on the single hardest case — a reference-year mismatch expressed implicitly in Slovenian — and the manner of that failure was itself instructive: the gap was closed by requiring explicit extraction of the full reference period before judgement, which is a prompt-design fix rather than a reason to change model. For NSIs with data-protection constraints, the practical conclusion is that model capability is not the binding constraint at this level of ambition. Local infrastructure capable of serving a medium-sized tool-calling model is.
+**Second, an open-weights model on infrastructure an NSI could realistically operate was sufficient for all three use cases at prototype level.** Every use case ran against the same SSPCloud-hosted model. It handled multilingual comparison of statistical releases, autonomous multi-step web navigation, and grounded conversation over a metadata graph. It was outperformed by a commercial model on the single hardest case — a reference-year mismatch expressed implicitly in Slovenian — and the manner of that failure was itself instructive: the gap was closed by requiring explicit extraction of the full reference period before judgement, which is a prompt-design fix rather than a reason to change model. The practical conclusion is that model capability is not the binding constraint at this level of ambition; the ability to serve a medium-sized tool-calling model is. Since the environment used here admits only non-sensitive material, this says nothing about processing sensitive data — but it does establish that the pattern an office would need to reproduce for that purpose is an ordinary one, and that choosing an open model over a proprietary one does not cost capability in these applications.
 
 **Third, the way a capability is exposed matters as much as the capability itself.** The two prototypes use tool-calling in structurally different ways — as a private control loop inside an agent, and as a published interface over a standard protocol — and the difference determines what can be built next. By exposing graph operations through both a REST API for humans and an MCP layer for agents, backed by one service layer and briefed at runtime from the deployment profile, the Metadata Graph stops being an application with an AI feature and becomes a data source that arbitrary agents can reason over. This is a general pattern, not a metadata-specific one, and it is the sprint's most transferable architectural result. It also raises governance questions the project has not yet addressed: when an agent can query and modify a statistical system through a standard protocol, the boundaries of what it may see and change become an explicit design decision rather than an implicit consequence of the user interface.
 
-**Fourth, evaluation is where the work is thinnest, and this is now the limiting factor.** Every use case scores well on efficiency, reusability and feasibility, and poorly on evaluation robustness. The News Corner experiment specifies the most rigorous evaluation design produced — synthetic articles at known alignment levels scored against human judgement — but it has not been executed at scale. The metadata user stories carry acceptance criteria but no scored benchmark. The web scraper's outputs were judged by inspection. The prototypes are therefore sufficient to demonstrate that these approaches work and to let other NSIs try them; they are not yet sufficient to support an operational decision about whether to adopt them. Closing that gap — shared benchmarks with ground truth, executed against a fixed model version and repeated as models change — is the single most valuable next step for WP12, and it is a task the ESS is well placed to do collectively rather than each NSI doing it alone.
+**Fourth, the prototypes answer the first evaluation question and set up the second.** As §2 sets out, "evaluation" here covers two different questions. The first — is this reasonable, buildable, reusable, operable under realistic conditions, and sound against sensible architectural principles — is the one this deliverable answers, and the answer across all three use cases is yes. The second — how accurate and reliable the output actually is, measured systematically against ground truth — was outside the preconditions of this work: three days, an environment restricted to non-sensitive material, and no benchmark datasets to measure against.
 
-Taken together, the sprint outputs show that the technical barriers to LLM-based systems in official statistics are now lower than the methodological ones. Building a working agentic prototype took three days. Knowing how well it works, reliably and repeatably, remains the harder problem.
+That is not a shortfall to be apologised for so much as a description of where the work now stands, and it identifies what these prototypes are most useful for next. They are working systems, documented and runnable, that can serve as the basis for systematic effectiveness evaluation — carried out in environments where sensitive material may also be used, and where an office's own data supplies the ground truth that public sources cannot. The News Corner experiment already specifies a suitable method: synthetic articles at known alignment levels, scored by human evaluators, with system agreement measured against that reference. Applying that kind of design to each use case, against a fixed model version and repeated as models change, is the natural continuation — and it is work the ESS is better placed to do collectively than each NSI separately.
+
+Taken together, the sprint outputs show that the technical barriers to LLM-based systems in official statistics are now lower than the methodological ones. Building a working agentic prototype took three days. Establishing how well it works, reliably and repeatably, is the next piece of work — and it now has something concrete to be performed on.
 
 ---
 
