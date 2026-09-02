@@ -18,13 +18,43 @@ The deliverable follows the structure established by D12.1, extended with additi
 
 WP12 explores how large language models (LLMs) and generative AI can be used in the context of official statistics. The work includes both practical prototype development and reflection on how such systems can be implemented in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
 
+The work package proceeds from the observation that LLMs already offer substantial opportunities in the statistical domain — text automation, code translation, quality control, chatbot interfaces — while the pace of development makes it difficult to forecast which specific applications will be relevant across 2024–2027. WP12 therefore identifies five presumptive high-value areas and adopts an iterative approach, selecting specific applications as late as possible before each piece of work starts:
+
+| # | High-value area |
+|---|---|
+| A | Data and metadata handling through usage of LLM |
+| B | Generating draft text for the process step *Analyse* |
+| C | Improving and translating production code |
+| D | Dissemination process by using chatbots |
+| E | Analysis of large documents and web page data |
+
+Across these areas WP12 pursues three objectives: to explore the ability of LLMs available in 2024–2027 to integrate into the production and support of official statistics; to explore what benefits fine-tuning existing LLMs brings to the use cases; and — pervasive to both — to define the architectural enablers and constraints that apply when LLMs are used.
+
+The work package is organised in three tasks. **T12.1** analyses how LLMs can be integrated into production in ways that align data-protection strategy with data sensitivity, and produces architectural guidance that supports the prototypes. **T12.2** demonstrates the use of pre-existing LLMs through at least two prototypes covering at least two of the high-value areas. **T12.3** examines fine-tuning as a route to a specialised statistical LLM.
+
 ### 1.2 Objectives of D12.2
 
-- Document the prototypes developed and extended during the Stockholm sprint (June 2026)
+D12.2 is *WP12 LLM prototype B*, delivered under **T12.2 — Use of pre-existing LLM**. Its purpose is therefore to demonstrate what existing, unmodified LLMs can do for official statistics, and to record what was learned in enough detail that other NSIs can judge whether to try the same thing.
+
+T12.2 requires at least two prototypes covering at least two of the high-value areas. This deliverable meets that requirement as follows:
+
+| Contribution | High-value area | Form |
+|---|---|---|
+| Metadata Graph | **A** — Data and metadata handling through usage of LLM | Runnable prototype |
+| Web Corner | **E** — Analysis of large documents and web page data | Runnable prototype |
+| News Corner | **E** — Analysis of large documents and web page data, applied to quality control of statistical communication | Experiment report |
+
+Two prototypes, two distinct high-value areas. News Corner extends the coverage of area E into a quality-control setting without being a third prototype; §1.4 explains how the three fit together.
+
+Against that framing, the objectives of this deliverable are to:
+
+- Document the prototypes developed and extended during the Stockholm sprint (June 2026), with enough code, documentation and getting-started guidance that they can be run by people who were not part of the sprint groups
 - Provide evaluation results using a shared evaluation framework
-- Describe architectural choices and their implications
+- Describe architectural choices and their implications, feeding observations back into the architectural guidance developed under T12.1 — in particular the consequences of choosing open-source over proprietary models for reusability, practicality and data sensitivity
 - Capture lessons learned and guidance for NSIs considering LLM-based approaches
 - Identify scope, limitations, and future directions
+
+**Out of scope.** D12.2 concerns pre-existing models used as they are. Fine-tuning and domain adaptation belong to T12.3 and are not attempted here; where the sprint results bear on that question, they are noted as input to it rather than as findings about fine-tuning. The deliverable also does not attempt to cover the remaining high-value areas — draft text for the *Analyse* step (B), production code translation (C), or dissemination chatbots (D) — beyond noting in §7 where the sprint architectures could be extended towards them.
 
 ### 1.3 Relationship to D12.1
 
@@ -44,11 +74,11 @@ The extension of Web Corner is the clearest line of continuity. In D12.1 the Web
 
 D12.2 consists of a report and a prototype. In practice the prototype requirement is met by **two technical prototypes**, each demonstrating different properties and architectural approaches to generative AI, complemented by **one experiment report** on a third use case:
 
-| Contribution | Form | What it demonstrates |
-|---|---|---|
-| **Web Corner** — agentic web scraper | Runnable prototype, code in this repository | Agentic tool-calling: a small, self-contained agent loop where capability is carried by the system prompt and a few atomic tools rather than by application code |
-| **Metadata Graph** | Runnable prototype, [own repository](https://github.com/AIML4OS/WP12_MetadataGraph) | A full application architecture: a domain-configurable knowledge graph with a human interface and a parallel machine interface (MCP), skills-based domain knowledge injection, and profile-driven adaptation |
-| **News Corner** — statistical media consistency | Experiment report, no runnable code | Feasibility evidence: whether an open-weights model hosted on shared European infrastructure can perform a genuinely difficult multilingual comparison task, and where its limits lie |
+| Contribution | Area | Form | What it demonstrates |
+|---|---|---|---|
+| **Web Corner** — agentic web scraper | E | Runnable prototype, code in this repository | Agentic tool-calling: a small, self-contained agent loop where capability is carried by the system prompt and a few atomic tools rather than by application code |
+| **Metadata Graph** | A | Runnable prototype, [own repository](https://github.com/AIML4OS/WP12_MetadataGraph) | A full application architecture: a domain-configurable knowledge graph with a human interface and a parallel machine interface (MCP), skills-based domain knowledge injection, and profile-driven adaptation |
+| **News Corner** — statistical media consistency | E | Experiment report, no runnable code | Feasibility evidence: whether an open-weights model hosted on shared European infrastructure can perform a genuinely difficult multilingual comparison task, and where its limits lie |
 
 The two prototypes were chosen to sit at opposite ends of a spectrum rather than to duplicate each other. Web Corner is minimal — one control loop, three tools, one configuration file — and shows how much capability can be obtained with very little code when the model is doing the reasoning. The Metadata Graph is a structured application and shows what is required when the AI capability must be embedded in an organisation's information model, governed by a schema, and made available to other systems. Between them they cover the two realistic shapes an NSI's first LLM system is likely to take.
 
@@ -93,6 +123,8 @@ The prototypes share a common architectural approach:
 - **Tool-calling**: used by both prototypes for structured interaction with external systems
 
 That all three use cases ran against the same open-weights model on the same shared European infrastructure is itself a result. It means the differences observed between use cases reflect the tasks and the architectures rather than differences in model access, and it demonstrates that a shared ESS-level inference service is sufficient for prototype work of this kind.
+
+This bears directly on the open-source versus proprietary question raised in the T12.1 architectural guidance. On **data sensitivity**, an SSPCloud-hosted open-weights model keeps content inside European public infrastructure, which is the decisive property for any use case touching non-public statistical material — and the metadata prototype strengthens this further by running fully without an LLM key at all, so the graph layer can be deployed before any model decision is taken. On **practicality**, the open model was sufficient for every task attempted and was outperformed by a commercial model only on the single hardest comparison case, where the gap was closed by prompt design rather than by changing model. On **reusability**, both prototypes reach their model through a standard OpenAI-compatible interface, so the choice between an SSPCloud endpoint, a locally hosted vLLM or Ollama server, and a commercial API is a configuration change rather than a code change — which is the property that makes the same prototype adoptable by NSIs with different constraints. The cost of that portability is the infrastructure prerequisite recorded in §2: a tool-calling model of useful size still has to be served from somewhere.
 
 ### 3.3 Tool-calling and the Model Context Protocol
 
@@ -219,18 +251,25 @@ The system operates as a decision-and-action loop driven by an LLM with tool-cal
 The tools are kept "atomic" (performing only one small task) for higher reliability:
 - `fetch_page_urls`: retrieve hyperlinks from a URL, allowing the agent to move from "hub" listing pages to "leaf node" detail pages
 - `fetch_page_content`: fetch fully rendered page text, filtering out raw markup
-- `interact_with_web`: Playwright-based interaction (click, scroll) for dynamic content
+- `interact_with_web`: Playwright-based interaction — `click`, `type` or `scroll` — for dynamic content
 
 The control loop itself is deliberately thin — it forwards tool calls, appends results to the message history, and iterates until the model returns content instead of a tool call. All navigation strategy lives in the system prompt, which encodes three operating modes (exploration, enumeration, extraction) and names two explicit failure states: returning a directory URL instead of the item, and extracting content from a list page.
 
-**Technical configuration.** Python, with Playwright for headless browser automation and an OpenAI-compatible client for tool-calling. A single YAML file defines API key, endpoint, model name, temperature and whether extended reasoning is requested. Token usage is printed after each run, making the cost of a given task directly observable.
+**Technical configuration.** Python, with Playwright (and `playwright-stealth`) for headless browser automation and an OpenAI-compatible client for tool-calling. A single YAML file defines API key, endpoint, model name and temperature. Token usage is printed after each run, making the cost of a given task directly observable.
+
+**A note on collection practice.** The two fetching tools mask the browser fingerprint — running Playwright through a stealth wrapper and presenting a desktop Chrome user-agent — so that the headless browser is not identifiable as such. This is what allows the prototype to work on sites that block headless clients, but it is an active measure to avoid bot detection rather than a neutral technical choice. An NSI adopting this approach should decide deliberately whether it is compatible with its own policy on automated collection, the target site's terms of use, and the transparency expectations that apply to official statistics. This is an architectural constraint of the agentic-scraping pattern rather than a defect of this implementation, and it belongs in the T12.1 guidance alongside the data-protection considerations.
 
 #### 4.2.4 Evaluation Results
 
-The proof of concept was evaluated across several diverse use cases, with worked outputs checked into the repository:
-- **Comparative analysis**: fetching and comparing inflation figures from SCB and CBS
-- **OJA discovery**: matching online job advertisements to specific professional descriptions
-- **E-commerce extraction**: fetching product catalogues, real-time pricing and review sentiment
+The proof of concept was evaluated across several diverse use cases, with full run transcripts checked into the repository:
+
+| Use case | Task | Result | Tokens |
+|---|---|---|---|
+| Comparative analysis | Newest inflation figures from the Swedish and Dutch NSIs, as a table | Both figures with period and source URLs | 14k |
+| OJA discovery | CBS vacancies that are field-based rather than office-based, with direct URLs | Five individual vacancies with direct URLs | 13k |
+| E-commerce extraction | Product URLs, prices and review sentiment for a product category on a retail site | Fifteen products as structured CSV | 24k |
+
+Each run reached atomic-level results rather than stopping at a listing page, which is the failure mode the system prompt is written to prevent. The OJA run also exercised URL discovery: it was given no starting URL and located the CBS recruitment site itself. Token totals include chain-of-thought reasoning, and place the cost of a completed task at cents against a commercial API and at compute only when self-hosted.
 
 #### 4.2.5 Evaluation Summary
 
@@ -238,13 +277,13 @@ The proof of concept was evaluated across several diverse use cases, with worked
 |---|---|
 | Efficiency gain | High in generic applicability; low in raw runtime speed. Setup time for a new task is close to zero, but LLM reasoning makes each run slower than a hardcoded script |
 | Reusability | High — reusable across diverse sites without writing new code |
-| Data accessibility | High — targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability |
+| Data accessibility | High — targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability; note the fingerprint-masking caveat in §4.2.3 |
 | On-prem compatibility | Medium/High — no external dependency beyond an OpenAI-compatible endpoint, but running it well on-premises requires local infrastructure capable of serving a medium-sized tool-calling model |
-| Low-hanging fruit for NSIs | Medium/High — small codebase and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition |
+| Low-hanging fruit for NSIs | Medium/High — small codebase and a single configuration file, but Playwright and its browser dependencies add installation friction, an available tool-calling endpoint is a precondition, and the task prompt is currently edited in `main.py` rather than passed as an argument |
 | Evaluation robustness | Low — outputs were assessed by inspection against known page content; no benchmark dataset or ground truth was established during the sprint |
 | Feasibility | Medium |
 | Lifespan | Medium/High — resilience to site redesign is the central design argument, and the tool interface is model-agnostic |
-| Cost effectiveness | Medium — a task consumes many round-trips and chain-of-thought reasoning increases token count further; cost is bounded when the model is self-hosted |
+| Cost effectiveness | Medium/High — the three checked-in runs completed on 13k–24k total tokens including reasoning, so a task costs cents at commercial rates and nothing beyond compute when self-hosted; cost scales with pages traversed, so exhaustive enumeration of a large listing is the case to watch |
 | Performance vs. chatbots | Comparable; often superior due to specialized system prompting |
 
 #### 4.2.6 Key Takeaways
@@ -256,6 +295,8 @@ The proof of concept was evaluated across several diverse use cases, with worked
 #### 4.2.7 Current Status
 
 Core fetching, extraction and reasoning are fully functional. Playwright integration is in place and the system can launch headless browsers and render dynamic content, but the interaction between the LLM's decision timing and asynchronous JavaScript execution is still being refined. Automated benchmarking against standard datasets has not been started.
+
+Reviewing the code against this report surfaced one defect and three smaller inconsistencies. The defect — `playwright-stealth` was imported by two tools but missing from `requirements.txt`, so the documented getting-started sequence failed on a fresh clone — has been fixed. The remaining items are recorded in the prototype report: `interact_with_web` does not apply the same fingerprint masking as the other two tools, the `use_extra_body` reasoning flag in `config.yaml` is overridden in code, and the task prompt is edited in `main.py` rather than supplied as an argument.
 
 See [webcorner/README.md](../webcorner/README.md) for getting-started instructions and [webcorner/Report.md](../webcorner/Report.md) for the full write-up.
 
@@ -457,15 +498,25 @@ This section captures observations and reflections on the quality of results pro
 
 ### 7.5 Research Directions
 
-- Investigate fine-tuning or domain adaptation of open-source models for statistical tasks.
+- Investigate fine-tuning or domain adaptation of open-source models for statistical tasks (T12.3).
 - Explore multi-agent architectures for complex statistical workflows.
 - Assess the impact of retrieval-augmented generation (RAG) on output quality for metadata and dissemination tasks.
+
+### 7.6 Coverage of the Remaining High-Value Areas
+
+D12.2 covers areas A and E. The sprint architectures extend towards the other three without requiring new foundations:
+
+- **Draft text for the *Analyse* step (B).** The metadata user story US-06 already generates plain-language narrative from graph content for publication purposes, and the skill mechanism is the natural way to encode an organisation's house conventions for such text. The step from explaining a node to drafting an analytical passage grounded in the same metadata is short.
+- **Improving and translating production code (C).** Not addressed by either prototype. The `ProductionSolution` node type in the metadata profile links statistical programmes to the pipelines and repositories that implement them, which would give a code-oriented use case the context an LLM needs about what a piece of code is *for* — but this is a starting point, not a partial result.
+- **Dissemination chatbots (D).** The closest existing work. The metadata prototype's MCP layer already lets an external assistant answer questions grounded in the graph, which is a dissemination chatbot in all but framing; what is missing is a public-facing interface, an access model governing what an anonymous user may query, and evaluation against the standards that apply to published statistical information.
+
+The common prerequisite in all three cases is the same one identified in §8: an evaluation method robust enough to say whether the output is good enough to use.
 
 ---
 
 ## 8. Conclusions
 
-The Stockholm sprint set out to advance both prototype development and the material needed for this deliverable. It produced two runnable prototypes and one experiment, and the results support four conclusions.
+The Stockholm sprint set out to advance both prototype development and the material needed for this deliverable. It produced two runnable prototypes and one experiment, satisfying the T12.2 requirement of at least two prototypes across at least two high-value areas — data and metadata handling, and analysis of large documents and web page data. The results support four conclusions.
 
 **First, the sprint moved WP12 from LLMs as text processors to LLMs as actors.** In D12.1 the prototypes used models to interpret content that conventional code had already retrieved. In D12.2 both prototypes let the model decide what to retrieve or traverse next. That shift is what produces the sprint's central practical argument: capability that used to require per-site or per-source code is now carried by a system prompt and a small set of atomic tools, moving the maintenance burden from many fragile scripts to one prompt and one tool layer. For statistical production, where source systems and websites change continuously and maintenance dominates the total cost of a data collection, this is the most consequential property observed.
 
