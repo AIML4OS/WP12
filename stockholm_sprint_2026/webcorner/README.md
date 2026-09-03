@@ -103,7 +103,7 @@ playwright install-deps
 ### Current Development: Playwright Integration
 We have initiated integration with **Playwright** to handle modern, JavaScript-heavy websites. 
 - **Progress:** The system can now launch headless browsers and attempt to render dynamic content.
-- **Current Status:** "Almost there"—while the plumbing is in place, the interaction between the LLM's decision-making and the timing of asynchronous JS execution is still being refined to ensure reliable data capture.
+- **Current Status:** "Almost there"-while the plumbing is in place, the interaction between the LLM's decision-making and the timing of asynchronous JS execution is still being refined to ensure reliable data capture.
 
 ## Roadmap
 - [x] LLM can fetch hyperlinks from URLs

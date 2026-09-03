@@ -72,7 +72,7 @@ A test was considered passed when the model’s overall conclusion matched the e
 
 ## 5. Detailed Test Results
 
-### 5.1 Test 1: CBS Article vs NL Times Article — Consistent
+### 5.1 Test 1: CBS Article vs NL Times Article - Consistent
 
 | Field | Details |
 |---|---|
@@ -114,7 +114,7 @@ Token usage reported for this test:
 
 ---
 
-### 5.2 Test 1B: CBS Article vs NL Times Article — Consistent
+### 5.2 Test 1B: CBS Article vs NL Times Article - Consistent
 
 | Field | Details |
 |---|---|
@@ -134,7 +134,7 @@ This resulted in a more syntetic output, without side comments about numbers as 
 
 ---
 
-### 5.3 Test 2: CBS Article vs NL Times Article — Inconsistent Topic
+### 5.3 Test 2: CBS Article vs NL Times Article - Inconsistent Topic
 
 | Field | Details |
 |---|---|
@@ -168,7 +168,7 @@ This was a clear mismatch case. GEMMA4-26B-MOE correctly rejected the pair as in
 
 ---
 
-### 5.4 Test 3: CBS Article vs NL Times Article — Inconsistent Reference Period and Figures
+### 5.4 Test 3: CBS Article vs NL Times Article - Inconsistent Reference Period and Figures
 
 | Field | Details |
 |---|---|
@@ -204,7 +204,7 @@ This test shows that GEMMA4-26B-MOE was able to detect statistical inconsistenci
 
 ---
 
-### 5.5 Test 4: CBS Article in Dutch vs NL Times Article in English — Consistent Across Languages
+### 5.5 Test 4: CBS Article in Dutch vs NL Times Article in English - Consistent Across Languages
 
 | Field | Details |
 |---|---|
@@ -238,7 +238,7 @@ This was a positive multilingual result. GEMMA4-26B-MOE successfully handled a D
 
 ---
 
-### 5.6 Test 5: SURS Article vs RTVSLO Article — Failed Slovenian Reference-Year Detection
+### 5.6 Test 5: SURS Article vs RTVSLO Article - Failed Slovenian Reference-Year Detection
 
 | Field | Details |
 |---|---|
@@ -393,11 +393,11 @@ the statistical release is here: https://www.cbs.nl/en-gb/news/2026/24/household
 TASK:
 Evaluate the newspaper article summary against the NSI release on the following 5 dimensions:
 
-1. topic_match — Does the article refer to the same statistical topic as the NSI release? (true/false)
-2. figures_accurate — Are numbers, percentages, or statistics mentioned in the article consistent with what the NSI release says? (true/false)
-3. reference_period_accurate — If the article references a time period (year, quarter, month), is it consistent with the NSI release? If no period is mentioned in the article, mark true. (true/false)
-4. source_attributed — Does the article imply or mention the NSI or an official statistical source? Be lenient — mark true unless there is clear mis-attribution (e.g., attributing to a different organisation with a different meaning). (true/false)
-5. framing_consistent — Is the framing, tone, and emphasis of the article consistent with the NSI release? Does it avoid sensationalising, dramatising, or downplaying the statistical findings? (true/false)
+1. topic_match - Does the article refer to the same statistical topic as the NSI release? (true/false)
+2. figures_accurate - Are numbers, percentages, or statistics mentioned in the article consistent with what the NSI release says? (true/false)
+3. reference_period_accurate - If the article references a time period (year, quarter, month), is it consistent with the NSI release? If no period is mentioned in the article, mark true. (true/false)
+4. source_attributed - Does the article imply or mention the NSI or an official statistical source? Be lenient - mark true unless there is clear mis-attribution (e.g., attributing to a different organisation with a different meaning). (true/false)
+5. framing_consistent - Is the framing, tone, and emphasis of the article consistent with the NSI release? Does it avoid sensationalising, dramatising, or downplaying the statistical findings? (true/false)
 ```
 
 
