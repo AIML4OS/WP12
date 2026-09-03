@@ -1,6 +1,6 @@
 # Metadata Graph
 
-_Prototype report — WP12 Stockholm sprint, 16–18 June 2026._
+_Prototype report - WP12 Stockholm sprint, 16-18 June 2026._
 
 > **Where the code lives:** the prototype is larger than the other sprint outputs and has its own
 > repository: **<https://github.com/AIML4OS/WP12_MetadataGraph>**.
@@ -30,7 +30,7 @@ the sprint** and was not developed as part of it. The sprint contribution was to
 to official statistics by building a **deployment profile** for the European Statistical System, and
 to define and test the use cases it should support:
 
-- the `stat-metadata` profile — schema (node types, relationship types), presentation, expert agents
+- the `stat-metadata` profile - schema (node types, relationship types), presentation, expert agents
   and domain knowledge skills;
 - a seed graph of ESS metadata used as example data (256 nodes, 327 edges);
 - six user stories describing the statistical use cases, of which **US-01, US-03, US-05 and US-06**
@@ -47,7 +47,7 @@ The system has five components with distinct responsibilities.
 
 | Component | Responsibility |
 |---|---|
-| React frontend | The entire user experience — the graph canvas (React Flow), the chat, search, and editing dialogs. Communicates with the backend exclusively over HTTP. |
+| React frontend | The entire user experience - the graph canvas (React Flow), the chat, search, and editing dialogs. Communicates with the backend exclusively over HTTP. |
 | Node.js build toolchain | Compiles the React workspaces into static files that the browser downloads. Build-time only; not required at runtime in a packaged deployment. |
 | Python backend (FastAPI + uvicorn) | Serves those static files, exposes the REST API and the MCP endpoints, and calls the LLM on behalf of the chat. |
 | Knowledge graph | The single source of truth for nodes and edges. Persisted as a JSON file per profile (`config/<profile>/graph.json`) and held in memory as a NetworkX graph for traversal and query. The schema is configurable per deployment profile. |
@@ -69,7 +69,7 @@ types include the provenance edges needed for lineage (`INPUT_TO`, `PRODUCES_OUT
 classification-versioning edges needed for change impact (`HAS_VERSION`, `DERIVED_FROM`,
 `PREDECESSOR_OF`, `CORRESPONDS_TO`).
 
-Configuration is fully driven by the profile schema — no code changes are needed to adapt the
+Configuration is fully driven by the profile schema - no code changes are needed to adapt the
 domain model to another organisation's information model.
 
 ## The MCP layer and the path to autonomous agents
@@ -77,11 +77,10 @@ domain model to another organisation's information model.
 ### What MCP is
 
 The Model Context Protocol (MCP) is an open protocol that defines a standardised way for LLMs to
-invoke external tools and data sources. It is to agent–tool integration what the Language Server
-Protocol is to editor–language integration: a common contract that eliminates bespoke, one-off
+invoke external tools and data sources. It is to agent-tool integration what the Language Server
+Protocol is to editor-language integration: a common contract that eliminates bespoke, one-off
 wiring between systems. An MCP server advertises a set of typed tools and a set of instructions; any
-MCP-capable client — a desktop assistant, a hosted chat product, or an autonomous agent runtime —
-can discover and call them without integration code written specifically for that pairing.
+MCP-capable client - a desktop assistant, a hosted chat product, or an autonomous agent runtime - can discover and call them without integration code written specifically for that pairing.
 
 ### How it is implemented in this prototype
 
@@ -107,7 +106,7 @@ Concretely, the layer registers **59 tools** over the graph, including:
 | Session and visualisation | session creation, layout, annotations, sticky notes |
 
 Two design decisions are worth recording for the deliverable. First, the **MCP instructions are
-generated at runtime from the active profile schema** — the node types, relationship types and domain
+generated at runtime from the active profile schema** - the node types, relationship types and domain
 context an external agent receives are derived from `schema_config.json`, so a new deployment profile
 produces a correctly briefed agent with no code change. Second, because REST and MCP share one
 service layer, there is a regression test asserting that both surfaces return equivalent results
@@ -122,14 +121,14 @@ metadata graph conversationally without any code.
 This design creates a qualitative shift in what the system can support. The prototype's built-in
 chat operates in a tool-augmented single-turn mode: a human asks a question, the LLM optionally calls
 a graph search tool to ground its answer in real node data, and returns a response. The MCP layer is
-the prerequisite for the next mode — **autonomous agentic loops**, where sequences of LLM calls allow
+the prerequisite for the next mode - **autonomous agentic loops**, where sequences of LLM calls allow
 an agent to plan, traverse the graph, evaluate intermediate results, and decide whether to continue,
 backtrack, or produce a final output, without a human driving each step.
 
 Several of the sprint user stories are natural candidates for this agentic mode. Impact assessment
-after a classification version change (US-03) — identifying all downstream variables, code lists,
-data structure definitions and derived datasets affected by the change — requires multi-step graph
-traversal and iterative evaluation that a single prompt–response exchange cannot support. Lineage
+after a classification version change (US-03) - identifying all downstream variables, code lists,
+data structure definitions and derived datasets affected by the change - requires multi-step graph
+traversal and iterative evaluation that a single prompt-response exchange cannot support. Lineage
 explanation across a complex derivation chain, and cross-NSI harmonisation review, share the same
 characteristic: the answer emerges from a sequence of graph queries whose content is not known in
 advance, but depends on what the previous query returned. The architecture does not yet implement
@@ -139,13 +138,13 @@ that loop, but it deliberately builds the harness for it.
 
 A second architectural capability that distinguishes this prototype from a generic graph-plus-chat
 application is the skill-loading mechanism. Rather than relying on a single static system prompt,
-the chat service supports a progressive loading model in which domain knowledge skills — structured
+the chat service supports a progressive loading model in which domain knowledge skills - structured
 markdown files containing established concepts, standard classifications, methodological conventions
-and example artefacts for a given statistical domain — can be attached to expert agents and injected
+and example artefacts for a given statistical domain - can be attached to expert agents and injected
 into the LLM context at request time.
 
-Skills are loaded in two stages. In the first stage, only the skill metadata — name, description,
-when-to-use, domain — is loaded at startup, giving the system awareness of what skills exist without
+Skills are loaded in two stages. In the first stage, only the skill metadata - name, description,
+when-to-use, domain - is loaded at startup, giving the system awareness of what skills exist without
 loading their full content into memory. In the second stage, the full content of a skill is loaded
 lazily, on the first request that requires it. This means that a Population Statistics skill, for
 example, carrying knowledge of standard age and sex breakdowns, recommended value domains and
@@ -157,7 +156,7 @@ Each skill declares its own `allowed-tools` in front matter, which ties this mec
 the MCP tool layer: a skill both supplies domain knowledge and constrains which graph operations the
 agent may use while that knowledge is active.
 
-The ESS profile ships two skills as worked examples — **Graph Analysis** (structural, semantic and
+The ESS profile ships two skills as worked examples - **Graph Analysis** (structural, semantic and
 relational exploration of the graph) and **GSIM Lineage and Change Impact** (the US-03 use case,
 tracing lineage and assessing the downstream impact of a classification version change).
 
@@ -181,9 +180,9 @@ prototype validation, which makes them directly reusable as a test script by any
 | ID | Title | Actor | Exercised |
 |---|---|---|---|
 | US-01 | Concept extraction from documents and graph matching | Statistical producer / analyst | Yes |
-| US-02 | Standard facilitator agent | — | No |
+| US-02 | Standard facilitator agent | - | No |
 | US-03 | Lineage explanation and change impact assessment | Methodology officer, data steward | Yes |
-| US-04 | Concept harmoniser | — | No |
+| US-04 | Concept harmoniser | - | No |
 | US-05 | Guided metadata curation using domain knowledge skills | Metadata curator, domain expert | Yes |
 | US-06 | Interactive graph exploration for dissemination | Dissemination officer, data steward | Yes |
 
@@ -195,7 +194,7 @@ Rev. 2.1). US-05 exercises the skill and expert agent mechanism during curation.
 plain-language explanation of nodes for publication purposes.
 
 Because these user stories are shipped with the prototype and its seed data, they define what a user
-launching the prototype in SSPCloud can actually explore — they are the prototype's entry points,
+launching the prototype in SSPCloud can actually explore - they are the prototype's entry points,
 not only its design documentation.
 
 ## Evaluation summary
@@ -203,14 +202,14 @@ not only its design documentation.
 | Criterion | Assessment |
 |---|---|
 | Efficiency gain | High in discoverability and cross-office collaboration; low or none in replacing existing registries for authoritative publication. |
-| Reusability | High — the profile system supports any metadata domain without code changes, and the ESS profile is a complete worked example of what a new profile must contain. |
-| Data accessibility | Medium — the seed data is built from public ESS sources and ships with the prototype, so the demo is self-contained. Applying it to a real NSI environment requires access to internal metadata registers, which was not available during the sprint. |
-| On-prem compatibility | Medium/high — no component requires an external service, and the app runs without an LLM key at all, but useful AI behaviour requires local infrastructure capable of serving a medium-sized tool-calling model. |
-| Low-hanging fruit for NSIs | Medium — launching and exploring the prototype in SSPCloud is documented and reproducible, and a new profile is a configuration exercise rather than a development one. Populating it with an organisation's real metadata is not low-hanging: it requires curation effort and access to internal registers. |
-| Evaluation robustness | Low/medium — the user stories provide validation scenarios and acceptance criteria, which is a stronger starting point than ad-hoc testing, but no scored benchmark or ground truth was established during the sprint and results were assessed qualitatively. |
-| Feasibility | Medium — the seed data demonstrates the concept; real-world coverage requires curation. |
-| Lifespan | Medium/high — the standards-aligned schema (GSIM/SDMX) and the LLM-agnostic, protocol-based integration reduce lock-in on both the metadata and the model side. |
-| Cost effectiveness | Medium/high — graph exploration itself costs nothing; LLM cost is incurred per question rather than per record, and is bounded when the model is self-hosted. The curation effort to populate a real graph is the dominant cost, not inference. |
+| Reusability | High - the profile system supports any metadata domain without code changes, and the ESS profile is a complete worked example of what a new profile must contain. |
+| Data accessibility | Medium - the seed data is built from public ESS sources and ships with the prototype, so the demo is self-contained. Applying it to a real NSI environment requires access to internal metadata registers, which was not available during the sprint. |
+| On-prem compatibility | Medium/high - no component requires an external service, and the app runs without an LLM key at all, but useful AI behaviour requires local infrastructure capable of serving a medium-sized tool-calling model. |
+| Low-hanging fruit for NSIs | Medium - launching and exploring the prototype in SSPCloud is documented and reproducible, and a new profile is a configuration exercise rather than a development one. Populating it with an organisation's real metadata is not low-hanging: it requires curation effort and access to internal registers. |
+| Evaluation robustness | Low/medium - the user stories provide validation scenarios and acceptance criteria, which is a stronger starting point than ad-hoc testing, but no scored benchmark or ground truth was established during the sprint and results were assessed qualitatively. |
+| Feasibility | Medium - the seed data demonstrates the concept; real-world coverage requires curation. |
+| Lifespan | Medium/high - the standards-aligned schema (GSIM/SDMX) and the LLM-agnostic, protocol-based integration reduce lock-in on both the metadata and the model side. |
+| Cost effectiveness | Medium/high - graph exploration itself costs nothing; LLM cost is incurred per question rather than per record, and is bounded when the model is self-hosted. The curation effort to populate a real graph is the dominant cost, not inference. |
 
 Alongside the shared WP12 framework, the group defined four use-case-specific criteria:
 **discoverability** (can users find related metadata faster than in existing registries),
@@ -232,7 +231,7 @@ environments while sharing the same core architecture.
 
 The MCP layer is the most architecturally significant result for WP12 more broadly. It is the point
 at which a prototype stops being an application with an AI feature and becomes a data source that
-arbitrary agents can reason over — and it is a general pattern, not specific to metadata.
+arbitrary agents can reason over - and it is a general pattern, not specific to metadata.
 
 The main gaps are measurement and coverage. The user stories supply validation scenarios but not
 scored benchmarks, and the graph holds curated example data rather than an NSI's real metadata

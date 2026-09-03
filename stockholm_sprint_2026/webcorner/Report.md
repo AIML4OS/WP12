@@ -1,31 +1,31 @@
 # Agentic Web Scraper (Web Corner)
 
-_Prototype report — WP12 Stockholm sprint, 16–18 June 2026._
+_Prototype report - WP12 Stockholm sprint, 16-18 June 2026._
 
 ## Overview
 
 The agentic web scraper, developed by the Web Corner group, is a proof of concept for modern,
 agentic data collection for national statistical institutes. Traditional web scraping relies on
 rigid, rule-based scripts that break whenever a website updates its design. This prototype
-explores replacing those scripts with an "agentic" web scraper — an automated tool driven by a
+explores replacing those scripts with an "agentic" web scraper - an automated tool driven by a
 Large Language Model (LLM) equipped with interactive tool-calling.
 
 Rather than following fixed instructions, the agent interprets a natural language request,
 navigates web pages autonomously, and decides where to click or scroll to locate specific data.
 The use cases explored for official statistics were:
 
-- **Comparative analysis** — collecting and comparing statistical figures across national sources
+- **Comparative analysis** - collecting and comparing statistical figures across national sources
   (for example inflation figures from Statistics Sweden (SCB) and Statistics Netherlands (CBS)).
-- **Online job advertisement (OJA) discovery** — scanning websites to match specific job postings
+- **Online job advertisement (OJA) discovery** - scanning websites to match specific job postings
   against official job vacancy descriptions.
-- **E-commerce data extraction** — gathering online retail product catalogues, prices and consumer
+- **E-commerce data extraction** - gathering online retail product catalogues, prices and consumer
   reviews for economic tracking.
 
 Worked examples of all three are checked in as [`output_compare_NSI_numbers.md`](output_compare_NSI_numbers.md),
 [`output_outside_job_vacancies.md`](output_outside_job_vacancies.md) and
-[`output_coolblue.md`](output_coolblue.md). Each run reached atomic-level results — the two national
+[`output_coolblue.md`](output_coolblue.md). Each run reached atomic-level results - the two national
 inflation figures with their period and source URLs, fifteen products with prices and review scores,
-and five individual field-interviewer vacancies with their direct URLs — rather than stopping at a
+and five individual field-interviewer vacancies with their direct URLs - rather than stopping at a
 listing page. The job-vacancy run also illustrates the URL-discovery capability: it was given no
 starting URL and located the CBS recruitment site itself.
 
@@ -57,12 +57,12 @@ uses specialised tools to reach target information.
                       or further navigation is required.
 ```
 
-1. **User input** — a natural language objective and, optionally, a starting URL.
-2. **LLM decision engine** — evaluates page context and decides the next action using
+1. **User input** - a natural language objective and, optionally, a starting URL.
+2. **LLM decision engine** - evaluates page context and decides the next action using
    chain-of-thought reasoning.
-3. **Tool execution layer** — fetches hyperlinks, extracts content, or operates a headless browser
+3. **Tool execution layer** - fetches hyperlinks, extracts content, or operates a headless browser
    for dynamic interaction.
-4. **Feedback loop** — returns retrieved content to the LLM, which determines whether the task is
+4. **Feedback loop** - returns retrieved content to the LLM, which determines whether the task is
    complete or requires further navigation.
 
 The loop in [`main.py`](main.py) is deliberately thin: it forwards tool calls, appends results to
@@ -77,9 +77,9 @@ The scraper relies on three primary tools, all implemented in [`tools/`](tools/)
 |---|---|
 | `fetch_page_urls` | Loads the page until the network is idle so dynamic elements render, then extracts and normalises every hyperlink in the resulting DOM, allowing the agent to move from "hub" listing pages to "leaf node" detail pages. |
 | `fetch_page_content` | Extracts the rendered visible text of the page body, stripping all markup and collapsing whitespace to reduce token count. |
-| `interact_with_web` | Uses Playwright to perform one of three actions — `click`, `type` or `scroll` — to trigger JavaScript-heavy content or fill a form or search field. Records a video of each session to `recordings/`. |
+| `interact_with_web` | Uses Playwright to perform one of three actions - `click`, `type` or `scroll` - to trigger JavaScript-heavy content or fill a form or search field. Records a video of each session to `recordings/`. |
 
-The system prompt encodes three operating modes over these tools — **exploration** (map the site,
+The system prompt encodes three operating modes over these tools - **exploration** (map the site,
 distinguish hubs from leaf nodes, follow pagination), **enumeration** (treat a list page as a
 waypoint, not a destination), and **extraction** (only fetch content once an atomic leaf node is
 reached). Two explicit failure states are named in the prompt: the "overview trap" (returning a
@@ -127,14 +127,14 @@ the prototype should be used:
 | Criterion | Assessment |
 |---|---|
 | Efficiency gain | High in generic applicability; low in raw runtime speed. Setup time for a new task is close to zero, but LLM reasoning makes each run slower than a hardcoded script. |
-| Reusability | High — highly reusable across diverse sites without new code. |
-| Data accessibility | High — targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability; note that the prototype currently masks its browser fingerprint to work around the last of these. |
-| On-prem compatibility | Medium/high — the software has no external dependency beyond an OpenAI-compatible endpoint, but running it well on-premises requires local infrastructure capable of serving a medium-sized tool-calling model. |
-| Low-hanging fruit for NSIs | Medium/high — small codebase (one control loop and three tools) and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition. Running a task also requires editing the prompt in `main.py`; there is no command-line or file-based input yet. |
-| Evaluation robustness | Low — outputs were assessed by inspection against known page content. No benchmark dataset or ground truth was established during the sprint; automated benchmarking remains an open roadmap item. |
+| Reusability | High - highly reusable across diverse sites without new code. |
+| Data accessibility | High - targets are public web pages requiring no credentials. Constrained in practice by robots.txt, terms of use, rate limiting and bot protection rather than by availability; note that the prototype currently masks its browser fingerprint to work around the last of these. |
+| On-prem compatibility | Medium/high - the software has no external dependency beyond an OpenAI-compatible endpoint, but running it well on-premises requires local infrastructure capable of serving a medium-sized tool-calling model. |
+| Low-hanging fruit for NSIs | Medium/high - small codebase (one control loop and three tools) and a single configuration file, but Playwright and its browser dependencies add installation friction, and an available tool-calling endpoint is a precondition. Running a task also requires editing the prompt in `main.py`; there is no command-line or file-based input yet. |
+| Evaluation robustness | Low - outputs were assessed by inspection against known page content. No benchmark dataset or ground truth was established during the sprint; automated benchmarking remains an open roadmap item. |
 | Feasibility | Medium |
-| Lifespan | Medium/high — resilience to site redesign is the central design argument, and the tool interface is model-agnostic. |
-| Cost effectiveness | Medium/high — the three checked-in runs completed on 13k, 14k and 24k total tokens including reasoning, so a single task costs cents at commercial rates and nothing beyond compute when self-hosted. Cost scales with the number of pages traversed rather than with a fixed overhead, so exhaustive enumeration of a large listing is the case to watch. |
+| Lifespan | Medium/high - resilience to site redesign is the central design argument, and the tool interface is model-agnostic. |
+| Cost effectiveness | Medium/high - the three checked-in runs completed on 13k, 14k and 24k total tokens including reasoning, so a single task costs cents at commercial rates and nothing beyond compute when self-hosted. Cost scales with the number of pages traversed rather than with a fixed overhead, so exhaustive enumeration of a large listing is the case to watch. |
 | Performance vs. chatbots | Comparable, and often superior, due to specialised system prompting. |
 
 ## Key takeaways
@@ -143,7 +143,7 @@ the prototype should be used:
   a specialised scraping agent. Most of the prototype's capability is encoded there rather than in code.
 - **Reasoning trade-offs:** enabling chain-of-thought reasoning significantly improves output
   quality but increases inference latency and token cost.
-- **Tool design:** keeping tools atomic — each performing one small task — ensures higher
+- **Tool design:** keeping tools atomic - each performing one small task - ensures higher
   reliability during the LLM's tool-calling phase.
 
 ## Current status
@@ -165,7 +165,7 @@ The sprint results demonstrate a functional proof of concept for autonomous, AI-
 collection within the European Statistical System. Because the input is natural language, the tool
 is flexible and accessible to users who are not developers. By replacing fragile, site-specific code
 with atomic tools and LLM reasoning, the approach shifts the maintenance burden from per-site scripts
-to a single prompt and tool layer — which is the main argument for its relevance to official statistics.
+to a single prompt and tool layer - which is the main argument for its relevance to official statistics.
 
 The principal gap is evaluation: the prototype's outputs have been judged qualitatively, and a shared
 benchmark with ground truth is needed before the approach can be compared fairly against existing
