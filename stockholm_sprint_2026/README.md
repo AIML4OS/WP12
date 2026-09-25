@@ -137,9 +137,12 @@ stockholm_sprint_2026/
 ├── metadata/                      # Metadata Graph prototype (code in its own repo)
 │   ├── README.md
 │   └── Report.md                  # Prototype write-up for D12.2
-└── D12.2/                         # Draft deliverable D12.2
+└── D12.2/                         # Note recording where the D12.2 report moved to
     └── README.md
 ```
+
+The D12.2 report itself is in [`Deliverables/D12.2/`](../Deliverables/D12.2/README.md),
+alongside D12.1.
 
 ## First Steps to Start
 
