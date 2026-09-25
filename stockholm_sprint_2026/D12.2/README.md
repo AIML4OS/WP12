@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-Work Package 12 (WP12) of the AIML4OS project examines how large language models can create value for statistical organisations in Europe. The work combines practical prototype development with reflection on how such systems can be introduced in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
+Work Package 12 (WP12) of the AIML4OS project, Artificial Intelligence and Machine Learning for Official Statistics, examines how large language models can create value for statistical organisations in Europe. The work combines practical prototype development with reflection on how such systems can be introduced in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
 
 The work package proceeds from the observation that large language models already offer substantial opportunities in the statistical domain, including text automation, code translation, quality control and conversational interfaces, while the pace of development makes it difficult to forecast which specific applications will prove relevant over the period 2024 to 2027. WP12 therefore identifies five presumptive high-value areas and works iteratively, selecting concrete applications as late as possible before each piece of work begins. The five areas are the handling of data and metadata through the use of large language models; the generation of draft text for the Analyse phase of the statistical production process; the improvement and translation of production code; the use of conversational interfaces in dissemination; and the analysis of large documents and web page data.
 
@@ -24,7 +24,7 @@ The pilots are consequently more advanced in architectural terms than those repo
 
 ## 2. Composition of this deliverable
 
-The deliverable consists of a report and a prototype. In practice the prototype requirement is met by two technical prototypes, each demonstrating different properties and architectural approaches to generative artificial intelligence, complemented by an experiment report covering a third use case.
+The deliverable consists of a report and a prototype. In practice the prototype requirement is met by two technical prototypes, each demonstrating different properties and architectural approaches to generative artificial intelligence, complemented by a report on an experiment covering a third use case.
 
 The first prototype, referred to as Web Corner, is an agentic web scraper. It falls within the high-value area concerned with the analysis of large documents and web page data. It demonstrates how much capability can be obtained from a very small system when the reasoning is carried out by the model: the application consists of a short control loop and a handful of narrow operations, and its behaviour is determined largely by the instructions it is given rather than by its code.
 
@@ -34,7 +34,7 @@ The use cases were selected on a common principle. Each represents a task that o
 
 The third contribution, referred to as News Corner, concerns the consistency between media reporting and official statistical releases. This use case is becoming steadily more relevant for statistical organisations, which may need both awareness of how their output is being reported and the means to counter inaccurate representation of the figures they produce. It is also of interest because it bears directly on the multilingual requirements of the European Statistical System: the practicality of this kind of analysis depends on the language model being able to work across the wide range of languages used within the system, and not only in English.
 
-It is reported as an experiment rather than as a prototype. The work was deliberately set up in a simple way, with the emphasis not on the architecture but on showing how tests can be constructed to probe what a language model is capable of in relation to an actual operational need. More elaborate solutions can follow to the extent that continued development is judged worthwhile. It is included here because the test evidence is directly useful to any organisation considering the same task, and because the architecture it points towards is described in enough detail to be implemented by others.
+This third contribution is reported as an experiment rather than as a prototype. The work was deliberately set up in a simple way, with the emphasis not on the architecture but on showing how tests can be constructed to probe what a language model is capable of in relation to an actual operational need. More elaborate solutions can follow to the extent that continued development is judged worthwhile. It is included here because the test evidence is directly useful to any organisation considering the same task, and because the architecture it points towards is described in enough detail to be implemented by others.
 
 Fine-tuning and domain adaptation fall under Task 12.3 and are not attempted here. There is no requirement for a single deliverable to address all five high-value areas, and the remaining three are outside the scope of this one.
 
@@ -116,7 +116,7 @@ Metadata is a precondition for efficient and quality-assured statistical product
 
 The Metadata Graph makes a statistical metadata system explorable visually and conversationally. Rather than navigating manually through registers and forms, a user sees concepts, variables, classifications, populations and process steps as connected nodes. Any element can be selected and asked about in ordinary language, and the answer is generated by a language model working from the actual content of the graph rather than from general knowledge. Users can also enrich the graph, adding concepts and relationships directly, with the model mediating between the user's own words and the formal expression of those concepts in the relevant standards.
 
-The graph model is not tied to the information model of any particular organisation. It is deliberately flexible and configurable, so that it can be shaped to the range of models an organisation actually works with, among them GSIM, SDMX, DDI and Dublin Core, and so that the concepts it presents are recognisable to a metadata specialist. This is a matter of the vocabulary and structure being configurable to align with such standards; it does not mean that the system implements any of them as an exchange format or communicates in them directly.
+The graph model is not tied to the information model of any particular organisation. It is deliberately flexible and configurable, so that it can be shaped to the range of models an organisation actually works with, among them the Generic Statistical Information Model (GSIM), Statistical Data and Metadata eXchange (SDMX), the Data Documentation Initiative (DDI) and Dublin Core, and so that the concepts it presents are recognisable to a metadata specialist. This is a matter of the vocabulary and structure being configurable to align with such standards; it does not mean that the system implements any of them as an exchange format or communicates in them directly.
 
 The application consists of a graph and chat interface presented in a browser; a service that holds the graph, answers requests about it and calls the language model on behalf of the conversation; and a language model that is replaceable. Two properties of this arrangement matter for the present purposes. The first is that the application starts and operates with no language model configured at all, in which case the graph and its interfaces remain fully available and the conversational features are simply absent. An organisation can therefore adopt the graph itself before taking any decision about a model. The second is that the domain model is entirely a matter of configuration. The node types, the permitted relationships between them and the domain context presented to the model are all defined in a deployment profile rather than in the code, so adapting the system to another organisation's information model is a configuration exercise rather than a development project.
 
@@ -160,6 +160,8 @@ Articles were compared against official releases along five dimensions: whether 
 
 Seven tests were carried out. Six used the open-weights model available in the shared environment and one repeated the most difficult case using a commercial service for comparison. The material comprised releases and articles from the Dutch and Slovenian statistical systems, in English, Dutch and Slovenian.
 
+_Table 1: Results of the News Corner tests._
+
 | Test | Model | Sources | Language | Expected | Result | Outcome |
 |---|---|---|---|---|---|---|
 | 1 | Open-weights | CBS and NL Times | English | Consistent | Consistent | Passed |
@@ -169,6 +171,8 @@ Seven tests were carried out. Six used the open-weights model available in the s
 | 5 | Open-weights | CBS release in Dutch, article in English | Dutch and English | Consistent | Consistent | Passed |
 | 6 | Open-weights | SURS and RTVSLO, mismatched year | Slovenian | Inconsistent | Consistent | Failed |
 | 7 | Commercial | The same case | Slovenian | Inconsistent | Inconsistent | Passed |
+
+The sources named in the table are the statistical office of the Netherlands (CBS) and that of Slovenia (SURS), together with two media outlets: NL Times, an English-language news site covering the Netherlands, and RTVSLO, the Slovenian public broadcaster.
 
 The model performed well given the difficulty of the task. It correctly identified consistent reporting, differences of subject, incorrect figures and incorrect reference months. It also handled correctly a comparison between a release published in Dutch and an article published in English, which is directly relevant in a system where offices publish in their national languages while coverage frequently appears in English.
 
@@ -183,6 +187,8 @@ This contribution is an experiment rather than a runnable system. The test set i
 ## 6. Evaluation results
 
 The table below records the assessment of each contribution against the common dimensions. It concerns the first of the two evaluation questions set out in Section 3, namely whether each system is reasonable and operable, and not the second, namely how accurate its output is.
+
+_Table 2: Assessment of each contribution against the common dimensions._
 
 | Dimension | Web Corner | Metadata Graph | News Corner |
 |---|---|---|---|
@@ -248,6 +254,26 @@ The fourth is that the prototypes answer the first evaluation question and set u
 
 Taken together, the results indicate that the technical barriers to the use of language models in official statistics are now lower than the methodological ones. Building a working agentic prototype is a matter of days. Establishing how well it works, reliably and repeatably, is the next piece of work, and it now has something concrete on which to be performed.
 
-## Supporting material
+## Supporting material and information
 
-The prototypes and the detailed reports behind this document are published in the work package repository at https://github.com/AIML4OS/WP12, which contains the Web Corner prototype together with its report and run transcripts, the report on the Metadata Graph, and the News Corner test report, architecture specification and experiment summary. The Metadata Graph itself, together with its user stories and instructions for launching it in the shared environment, is published separately at https://github.com/AIML4OS/WP12_MetadataGraph.
+The prototypes and the detailed reports behind this document are published in two public repositories. The work package repository holds the Web Corner prototype together with its own report and the full transcripts of the runs described in Section 5.1, the report on the Metadata Graph, and the three News Corner documents: the summary of the experiment, the full test report and the architecture specification for the operational system. The Metadata Graph application itself, together with its user stories and the guide to launching it in the shared environment, is published in a repository of its own. The shared development and hosting environment referred to throughout this report is operated as a service to statistical organisations and is reached through its own portal.
+
+The table below lists the material referred to in this report and where it can be found.
+
+_Table 3: Where the supporting material can be found._
+
+| Material | Location |
+|---|---|
+| Work package repository, containing all material for this deliverable except the Metadata Graph application | https://github.com/AIML4OS/WP12 |
+| Deliverable D12.1, the previous prototype deliverable referred to in Section 1 | https://github.com/AIML4OS/WP12/blob/main/Deliverables/D12.1/AIML4OS%20D12.1%20Report.md |
+| Web Corner: prototype code, getting-started instructions and run transcripts | https://github.com/AIML4OS/WP12/tree/main/stockholm_sprint_2026/webcorner |
+| Web Corner: prototype report | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/webcorner/Report.md |
+| Metadata Graph: prototype report | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/metadata/Report.md |
+| News Corner: summary of the experiment | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Experiment-Report.md |
+| News Corner: full test report, including the results for each of the five dimensions and the instruction used | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Report.md |
+| News Corner: architecture specification for the operational system | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Draft-architecture.md |
+| Metadata Graph application, including its source code and documentation | https://github.com/AIML4OS/WP12_MetadataGraph |
+| Metadata Graph: guide to launching the application in the shared environment | https://github.com/AIML4OS/WP12_MetadataGraph/blob/main/docs/SSPCloud-setup.md |
+| Metadata Graph: the six user stories described in Section 5.2 | https://github.com/AIML4OS/WP12_MetadataGraph/tree/main/docs/sprint_documentation |
+| Metadata Graph: how a deployment profile is defined, for an organisation representing its own information model | https://github.com/AIML4OS/WP12_MetadataGraph/blob/main/docs/PROFILES.md |
+| SSPCloud, the shared development and hosting environment | https://datalab.sspcloud.fr/ |
