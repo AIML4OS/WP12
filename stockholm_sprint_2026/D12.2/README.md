@@ -160,7 +160,7 @@ Articles were compared against official releases along five dimensions: whether 
 
 Seven tests were carried out. Six used the open-weights model available in the shared environment and one repeated the most difficult case using a commercial service for comparison. The material comprised releases and articles from the Dutch and Slovenian statistical systems, in English, Dutch and Slovenian.
 
-_Table 1: Results of the News Corner tests._
+_Table 1: Result table from the News Corner tests._
 
 | Test | Model | Sources | Language | Expected | Result | Outcome |
 |---|---|---|---|---|---|---|
@@ -188,7 +188,7 @@ This contribution is an experiment rather than a runnable system. The test set i
 
 The table below records the assessment of each contribution against the common dimensions. It concerns the first of the two evaluation questions set out in Section 3, namely whether each system is reasonable and operable, and not the second, namely how accurate its output is.
 
-_Table 2: Assessment of each contribution against the common dimensions._
+_Table 2: Evaluation results - Dimensions and prototypes._
 
 | Dimension | Web Corner | Metadata Graph | News Corner |
 |---|---|---|---|
