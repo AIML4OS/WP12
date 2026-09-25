@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-Work Package 12 (WP12) of the AIML4OS project, Artificial Intelligence and Machine Learning for Official Statistics, examines how large language models can create value for statistical organisations in Europe. The work combines practical prototype development with reflection on how such systems can be introduced in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
+Work Package 12 (WP12) of the AIML4OS project examines how large language models can create value for statistical organisations in Europe. The work combines practical prototype development with reflection on how such systems can be introduced in a way that supports reuse, data protection, transparency, evaluation and operational relevance.
 
 The work package proceeds from the observation that large language models already offer substantial opportunities in the statistical domain, including text automation, code translation, quality control and conversational interfaces, while the pace of development makes it difficult to forecast which specific applications will prove relevant over the period 2024 to 2027. WP12 therefore identifies five presumptive high-value areas and works iteratively, selecting concrete applications as late as possible before each piece of work begins. The five areas are the handling of data and metadata through the use of large language models; the generation of draft text for the Analyse phase of the statistical production process; the improvement and translation of production code; the use of conversational interfaces in dissemination; and the analysis of large documents and web page data.
 
@@ -147,6 +147,10 @@ The system as configured for this domain demonstrates a populated graph of stati
 Two capabilities exist in the platform but were not exercised in this work. The first is federation, by which metadata graphs held by different organisations can be connected. The second is the autonomous agentic loop described in Section 4, for which the structure exists but the implementation does not.
 
 The Metadata Graph is published in its own repository, together with a guide to launching it in the shared environment. That guide is written as a sequence of steps: obtaining a key for the hosted language model, storing it as a secret, starting a development service with a pre-configured link that retrieves the code automatically, and starting the application with the profile for statistical metadata. The application then becomes available in the browser with the example metadata already loaded, so that a reader can begin exploring without preparing any data. The same repository holds the six user stories described above, one of which is written as an explicit validation exercise using a published labour force survey questionnaire; these are the most direct route into the system for a reader who wants to see what it does rather than how it is built. For an organisation wishing to go further, the repository also documents how a deployment profile is defined, which is what would be required to represent that organisation's own information model. As noted in Section 4, the application can be started without any language model configured, in which case the graph can be explored but the conversational features are absent.
+
+![Screenshot from the Metadata Graph application](images/metadata-graph-ui.png)
+
+_Figure 1: Screenshot from the Metadata Graph application._
 
 ### 5.3 News Corner: consistency between media reporting and official releases
 
