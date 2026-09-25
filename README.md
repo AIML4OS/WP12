@@ -32,13 +32,13 @@ This repository is meant to serve as a working space where ongoing development a
 ```plaintext
 /
 ├── Deliverables/
-│   └── D12.1/                               # D12.1 report (Lisbon hackathon, June 2025)
+│   ├── D12.1/                               # D12.1 report (Lisbon hackathon, June 2025)
+│   └── D12.2/                               # D12.2 report
 ├── wp12_hackathon/                          # Lisbon hackathon prototypes (input to D12.1)
 │   ├── dissemination_summary_prototype/     # Summarisation and tagging from report PDFs
 │   ├── from_pdf_to_figure_prototype/        # Structured data extraction from PDFs
 │   └── web_corner_prototype/                # Web scraping and LLM content classification
 ├── stockholm_sprint_2026/                   # Stockholm sprint (June 2026), input to D12.2
-│   ├── D12.2/                               # Draft deliverable D12.2
 │   ├── News_Corner/                         # Statistical media consistency (experiment)
 │   ├── webcorner/                           # Agentic web scraping (prototype)
 │   └── metadata/                            # Metadata Graph (prototype, own repository)
