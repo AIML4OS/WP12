@@ -258,22 +258,4 @@ Taken together, the results indicate that the technical barriers to the use of l
 
 The prototypes and the detailed reports behind this document are published in two public repositories. The work package repository holds the Web Corner prototype together with its own report and the full transcripts of the runs described in Section 5.1, the report on the Metadata Graph, and the three News Corner documents: the summary of the experiment, the full test report and the architecture specification for the operational system. The Metadata Graph application itself, together with its user stories and the guide to launching it in the shared environment, is published in a repository of its own. The shared development and hosting environment referred to throughout this report is operated as a service to statistical organisations and is reached through its own portal.
 
-The table below lists the material referred to in this report and where it can be found.
-
-_Table 3: Where the supporting material can be found._
-
-| Material | Location |
-|---|---|
-| Work package repository, containing all material for this deliverable except the Metadata Graph application | https://github.com/AIML4OS/WP12 |
-| Deliverable D12.1, the previous prototype deliverable referred to in Section 1 | https://github.com/AIML4OS/WP12/blob/main/Deliverables/D12.1/AIML4OS%20D12.1%20Report.md |
-| Web Corner: prototype code, getting-started instructions and run transcripts | https://github.com/AIML4OS/WP12/tree/main/stockholm_sprint_2026/webcorner |
-| Web Corner: prototype report | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/webcorner/Report.md |
-| Metadata Graph: prototype report | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/metadata/Report.md |
-| News Corner: summary of the experiment | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Experiment-Report.md |
-| News Corner: full test report, including the results for each of the five dimensions and the instruction used | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Report.md |
-| News Corner: architecture specification for the operational system | https://github.com/AIML4OS/WP12/blob/main/stockholm_sprint_2026/News_Corner/Draft-architecture.md |
-| Metadata Graph application, including its source code and documentation | https://github.com/AIML4OS/WP12_MetadataGraph |
-| Metadata Graph: guide to launching the application in the shared environment | https://github.com/AIML4OS/WP12_MetadataGraph/blob/main/docs/SSPCloud-setup.md |
-| Metadata Graph: the six user stories described in Section 5.2 | https://github.com/AIML4OS/WP12_MetadataGraph/tree/main/docs/sprint_documentation |
-| Metadata Graph: how a deployment profile is defined, for an organisation representing its own information model | https://github.com/AIML4OS/WP12_MetadataGraph/blob/main/docs/PROFILES.md |
-| SSPCloud, the shared development and hosting environment | https://datalab.sspcloud.fr/ |
+The work package repository is the starting point, at https://github.com/AIML4OS/WP12. Within it, the Web Corner prototype, its report and the run transcripts are held at https://github.com/AIML4OS/WP12/tree/main/stockholm_sprint_2026/webcorner, the report on the Metadata Graph at https://github.com/AIML4OS/WP12/tree/main/stockholm_sprint_2026/metadata, and the News Corner material at https://github.com/AIML4OS/WP12/tree/main/stockholm_sprint_2026/News_Corner. The Metadata Graph application is published separately at https://github.com/AIML4OS/WP12_MetadataGraph, where the guide to launching it in the shared environment and the user stories referred to in Section 5.2 are also held.
