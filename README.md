@@ -27,6 +27,21 @@ This repository is meant to serve as a working space where ongoing development a
 
 ---
 
+## Planning and Deliverables
+
+Due dates for the remaining WP12 deliverables, as set by the CSO:
+
+| No. | Title | Type | Lead | Due date |
+|-----|-------|------|------|----------|
+| D12.3 | WP12 LLM prototype C | Prototype and report, English | SCB | 30 September 2027 (M42) |
+| D12.4 | WP12 Architectural aspects of LLM usage in statistics | Report detailing findings on the architectural level relevant to the use of LLMs | SCB | 31 December 2027 (M45) |
+
+Already submitted: [D12.1](Deliverables/D12.1/AIML4OS%20D12.1%20Report.md) and [D12.2](Deliverables/D12.2/README.md).
+
+Ongoing work and decisions on the deliverables are recorded in the [meeting notes](meeting_notes/).
+
+---
+
 ## Repository Structure
 
 ```plaintext
