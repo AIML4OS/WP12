@@ -27,6 +27,17 @@ This repository is meant to serve as a working space where ongoing development a
 
 ---
 
+## AIML4OS Project Context
+
+The AIML4OS project overview is at <https://aiml4os.github.io/>, with a dedicated [WP12 page](https://aiml4os.github.io/chapters/llms.html).
+
+- AIML4OS is an ESSnet project running from April 2024 to March 2028, with 15 participating countries.
+- It has 13 work packages: six supporting work packages (WP1 to WP6) and seven use cases (WP7 to WP13). WP12 is the Large Language Models use case.
+- Project management and coordination (WP1) is led by the CSO, Ireland.
+- Submitted deliverables, including D12.1 and D12.2, are published on the [deliverables page](https://aiml4os.github.io/chapters/deliverables_tasks.html). The project's deliverable tracker is at <https://aiml4os.shinyapps.io/project_tracker>.
+
+---
+
 ## Planning and Deliverables
 
 Due dates for the remaining WP12 deliverables, as set by the CSO:
